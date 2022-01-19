@@ -23,17 +23,17 @@
 #define BOARD_H
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include "macros/units.h"
-
 /**
  * @name    Xtimer configuration
  * @{
  */
-#define XTIMER_HZ                   MHZ(1)
-#define XTIMER_WIDTH                (16)
+#define XTIMER_HZ MHZ(1)
+#define XTIMER_WIDTH (16)
 /** @} */
 
 /**

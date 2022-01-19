@@ -20,7 +20,6 @@
  */
 
 #include "board.h"
-
 #include "periph/gpio.h"
 
 extern void SystemInit(void);
