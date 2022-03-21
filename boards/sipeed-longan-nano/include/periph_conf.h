@@ -25,12 +25,17 @@
 extern "C" {
 #endif
 
-
 #ifndef CONFIG_BOARD_HAS_HXTAL
-#define CONFIG_BOARD_HAS_HXTAL        1
+#define CONFIG_BOARD_HAS_HXTAL      1
+#endif
+
+#ifndef CONFIG_BOARD_HAS_LXTAL
+#define CONFIG_BOARD_HAS_LXTAAL     1
 #endif
 
 #define CLOCK_HXTAL         MHZ(8)
+#define CLOCK_LXTAL         32767UL
+
 #define CLOCK_CORECLOCK     MHZ(104)
 
 /**
