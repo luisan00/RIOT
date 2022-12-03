@@ -1,0 +1,7 @@
+/**
+@defgroup    boards_xiao-nrf52840 Seeed Studio XIAO nRF52840
+@ingroup     boards
+@brief       Support for the Seeed Studio XIAO nRF52840
+
+
+ */
