@@ -36,6 +36,7 @@
 #include "cfg_rtt_default.h"
 #include "cfg_timer_tim2.h"
 #include "cfg_usb_otg_fs.h"
+#include "mii.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,21 +51,21 @@ extern "C" {
  * @{
  */
 static const dma_conf_t dma_config[] = {
-    {.stream = 14}, /* DMA2 Stream x */
-    {.stream = 13}, /* DMA2 Stream x */
+    { .stream = 15 },   /* DMA2 Stream 7 - USART1_TX */
+    { .stream = 14 },   /* DMA2 Stream 6 - USART6_TX */
+    { .stream = 8 },    /* DMA2 Stream 0 - ETH_TX    */
 };
-#define DMA_0_ISR isr_dma2_stream6
-#define DMA_1_ISR isr_dma2_stream5
-#define DMA_NUMOF ARRAY_SIZE(dma_config)
-/** @} */
 
+#define DMA_0_ISR  isr_dma2_stream7
+#define DMA_1_ISR  isr_dma2_stream6
+#define DMA_2_ISR  isr_dma2_stream0
+
+#define DMA_NUMOF           ARRAY_SIZE(dma_config)
+/** @} */
 
 /**
  * @name    UART configuration
  * @{
- */
-/**
- * @brief
  */
 static const uart_conf_t uart_config[] = {
     {
@@ -77,30 +78,54 @@ static const uart_conf_t uart_config[] = {
         .bus        = APB2,
         .irqn       = USART1_IRQn,
 #ifdef MODULE_PERIPH_DMA
-        .dma = DMA_STREAM_UNDEF,
-        .dma_chan = UINT8_MAX
+        .dma = 0,
+        .dma_chan = 4
 #endif
     }, {
         .dev        = USART6,
-        .rcc_mask   = RCC_APB2LPENR_USART6LPEN,
-        .rx_pin     = GPIO_PIN(PORT_C, 7),
-        .tx_pin     = GPIO_PIN(PORT_C, 6),
+        .rcc_mask   = RCC_APB2ENR_USART6EN,
+        .rx_pin     = GPIO_PIN(PORT_C, 7), /* Arduino connector */
+        .tx_pin     = GPIO_PIN(PORT_C, 6), /* Arduino connector */
         .rx_af      = GPIO_AF8,
         .tx_af      = GPIO_AF8,
         .bus        = APB2,
         .irqn       = USART6_IRQn,
 #ifdef MODULE_PERIPH_DMA
-        .dma = DMA_STREAM_UNDEF,
-        .dma_chan = UINT8_MAX
+        .dma = 1,
+        .dma_chan = 5
 #endif
     }
 };
 
 #define UART_0_ISR          (isr_usart1)
+#define UART_0_DMA_ISR      (isr_dma2_stream7)
 #define UART_1_ISR          (isr_usart6)
-
+#define UART_1_DMA_ISR      (isr_dma2_stream6)
 #define UART_NUMOF          ARRAY_SIZE(uart_config)
 /** @} */
+
+/**
+ * @name ETH configuration
+ * @{
+ */
+static const eth_conf_t eth_config = {
+    .mode = RMII,
+    .speed = MII_BMCR_SPEED_100 | MII_BMCR_FULL_DPLX,
+    .dma = 7,
+    .dma_chan = 8,
+    .phy_addr = 0x00,
+    .pins = {
+        GPIO_PIN(PORT_G, 13),   /* TXD0 */
+        GPIO_PIN(PORT_G, 14),   /* TXD1 */
+        GPIO_PIN(PORT_G, 11),   /* TX_EN */
+        GPIO_PIN(PORT_C, 4),    /* RXD0 */
+        GPIO_PIN(PORT_C, 5),    /* RXD1 */
+        GPIO_PIN(PORT_A, 7),    /* CRS_DV */
+        GPIO_PIN(PORT_C, 1),    /* MDC */
+        GPIO_PIN(PORT_A, 2),    /* MDIO */
+        GPIO_PIN(PORT_A, 1),    /* REF_CLK */
+    }
+};
 
 /**
  * @name    FMC configuration
@@ -225,20 +250,16 @@ static const fmc_bank_conf_t fmc_bank_config[] = {
 #define FMC_BANK_NUMOF  ARRAY_SIZE(fmc_bank_config)
 /** @} */
 
-
 // i2c
 
 // i2s
 
 // spi
 
-// pwm
-
 /**
  * @name PWM configuration
- *
  * @{
- * 
+ *
  * | dev   | chan | pin     |
  * |-------|------|---------|
  * | TIM10 | 0    | CN13-D3 |
