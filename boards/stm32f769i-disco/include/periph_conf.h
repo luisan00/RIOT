@@ -13,6 +13,7 @@
  * @brief       Peripheral MCU configuration for the STM32F769I-DISCO board
  *
  * @author      Vincent Dupont <vincent@otakeys.com>
+ *              Luis A. Ruiz <luisan00@hotmail.com>
  */
 
 /* This board provides an LSE */
@@ -40,9 +41,30 @@
 extern "C" {
 #endif
 
+// adc
+
+// dac
+
+/**
+ * @name    DMA streams configuration
+ * @{
+ */
+static const dma_conf_t dma_config[] = {
+    {.stream = 14}, /* DMA2 Stream x */
+    {.stream = 13}, /* DMA2 Stream x */
+};
+#define DMA_0_ISR isr_dma2_stream6
+#define DMA_1_ISR isr_dma2_stream5
+#define DMA_NUMOF ARRAY_SIZE(dma_config)
+/** @} */
+
+
 /**
  * @name    UART configuration
  * @{
+ */
+/**
+ * @brief
  */
 static const uart_conf_t uart_config[] = {
     {
@@ -54,10 +76,28 @@ static const uart_conf_t uart_config[] = {
         .tx_af      = GPIO_AF7,
         .bus        = APB2,
         .irqn       = USART1_IRQn,
+#ifdef MODULE_PERIPH_DMA
+        .dma = DMA_STREAM_UNDEF,
+        .dma_chan = UINT8_MAX
+#endif
+    }, {
+        .dev        = USART6,
+        .rcc_mask   = RCC_APB2LPENR_USART6LPEN,
+        .rx_pin     = GPIO_PIN(PORT_C, 7),
+        .tx_pin     = GPIO_PIN(PORT_C, 6),
+        .rx_af      = GPIO_AF8,
+        .tx_af      = GPIO_AF8,
+        .bus        = APB2,
+        .irqn       = USART6_IRQn,
+#ifdef MODULE_PERIPH_DMA
+        .dma = DMA_STREAM_UNDEF,
+        .dma_chan = UINT8_MAX
+#endif
     }
 };
 
 #define UART_0_ISR          (isr_usart1)
+#define UART_1_ISR          (isr_usart6)
 
 #define UART_NUMOF          ARRAY_SIZE(uart_config)
 /** @} */
@@ -183,6 +223,94 @@ static const fmc_bank_conf_t fmc_bank_config[] = {
  * @brief   Number of configured FMC banks
  */
 #define FMC_BANK_NUMOF  ARRAY_SIZE(fmc_bank_config)
+/** @} */
+
+
+// i2c
+
+// i2s
+
+// spi
+
+// pwm
+
+/**
+ * @name PWM configuration
+ *
+ * @{
+ * 
+ * | dev   | chan | pin     |
+ * |-------|------|---------|
+ * | TIM10 | 0    | CN13-D3 |
+ * | TIM3  | 2    | CN13-D5 |
+ * | TIM11 | 0    | CN13-D6 |
+ * | TIM12 | 0    | CN9-D9  |
+ * | TIM1  | 3    | CN9-D10 |
+ * | TIM12 | 1    | CN9-D11 |
+ */
+static const pwm_conf_t pwm_config[] = {
+    {
+        .dev = TIM10,
+        .rcc_mask = RCC_APB2ENR_TIM10EN,
+        .chan = {
+            { .pin = GPIO_PIN(PORT_F, 6), .cc_chan = 0 }, /* CN13 D3*/
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+        },
+        .af = GPIO_AF3,
+        .bus = APB2,
+    },
+    {
+        .dev = TIM3,
+        .rcc_mask = RCC_APB1ENR_TIM3EN,
+        .chan = {
+            { .pin = GPIO_PIN(PORT_C, 8), .cc_chan = 2 }, /* CN13 D5 */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+        },
+        .af = GPIO_AF2,
+        .bus = APB1,
+    },
+    {
+        .dev = TIM11,
+        .rcc_mask = RCC_APB2ENR_TIM11EN,
+        .chan = {
+            { .pin = GPIO_PIN(PORT_F, 7), .cc_chan = 0 }, /* D6 */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },          /* unused */
+        },
+        .af = GPIO_AF3,
+        .bus = APB2,
+    },
+    {
+        .dev = TIM12,
+        .rcc_mask = RCC_APB1ENR_TIM12EN,
+        .chan = {
+            { .pin = GPIO_PIN(PORT_H, 6), .cc_chan = 0 },  /* D9 */
+            { .pin = GPIO_PIN(PORT_B, 15), .cc_chan = 1 }, /* D11 */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },           /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },           /* unused */
+        },
+        .af = GPIO_AF9,
+        .bus = APB1,
+    },
+    {
+        .dev = TIM1,
+        .rcc_mask = RCC_APB2ENR_TIM1EN,
+        .chan = {
+            { .pin = GPIO_PIN(PORT_A, 11), .cc_chan = 3 }, /* D10 */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },           /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },           /* unused */
+            { .pin = GPIO_UNDEF, .cc_chan = 0 },           /* unused */
+        },
+        .af = GPIO_AF1,
+        .bus = APB2,
+    },
+};
+#define PWM_NUMOF   ARRAY_SIZE(pwm_config)
 /** @} */
 
 #ifdef __cplusplus
