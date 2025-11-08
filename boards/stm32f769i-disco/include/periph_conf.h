@@ -51,16 +51,46 @@ extern "C" {
  * @{
  */
 static const dma_conf_t dma_config[] = {
-    { .stream = 15 },   /* DMA2 Stream 7 - USART1_TX */
-    { .stream = 14 },   /* DMA2 Stream 6 - USART6_TX */
-    { .stream = 8 },    /* DMA2 Stream 0 - ETH_TX    */
+    { .stream = 15 }, /* DMA2 Stream 7 - USART1_TX */
+    { .stream = 7 },  /* DMA1 Stream 7 - UART5_TX */
+    { .stream = 14 }, /* DMA2 Stream 6 - USART6_TX */
+    { .stream = 8 },  /* DMA2 Stream 0 - ETH_TX    */
 };
 
 #define DMA_0_ISR  isr_dma2_stream7
-#define DMA_1_ISR  isr_dma2_stream6
-#define DMA_2_ISR  isr_dma2_stream0
+#define DMA_1_ISR  isr_dma1_stream7
+#define DMA_2_ISR  isr_dma2_stream6
+#define DMA_3_ISR  isr_dma2_stream0
 
 #define DMA_NUMOF           ARRAY_SIZE(dma_config)
+/** @} */
+
+
+/**
+ * @name i2c configurarion
+ * 
+ * 
+ * | i2c | scl | sda |
+ * |-----|-----|-----|
+ * |  1  | PB8 | PB9 |
+ * @{
+ */
+static const i2c_conf_t i2c_config[] = {
+    {
+        .dev = I2C1,
+        .speed = I2C_SPEED_NORMAL,
+        .scl_pin = GPIO_PIN(PORT_B, 8),
+        .sda_pin = GPIO_PIN(PORT_B, 9),
+        .scl_af = GPIO_AF4,
+        .sda_af = GPIO_AF4,
+        .bus = APB1,
+        .rcc_mask = RCC_APB1ENR_I2C1EN,
+        .rcc_sw_mask = RCC_DCKCFGR2_I2C1SEL_1,
+        .irqn = I2C1_ER_IRQn,
+    },
+};
+#define I2C_0_ISR           isr_i2c1_er
+#define I2C_NUMOF           ARRAY_SIZE(i2c_config)
 /** @} */
 
 /**
@@ -68,39 +98,53 @@ static const dma_conf_t dma_config[] = {
  * @{
  */
 static const uart_conf_t uart_config[] = {
-    {
-        .dev        = USART1,
-        .rcc_mask   = RCC_APB2ENR_USART1EN,
-        .rx_pin     = GPIO_PIN(PORT_A, 10),
-        .tx_pin     = GPIO_PIN(PORT_A, 9),
-        .rx_af      = GPIO_AF7,
-        .tx_af      = GPIO_AF7,
-        .bus        = APB2,
-        .irqn       = USART1_IRQn,
+    { .dev = USART1,
+      .rcc_mask = RCC_APB2ENR_USART1EN,
+      .rx_pin = GPIO_PIN(PORT_A, 10),
+      .tx_pin = GPIO_PIN(PORT_A, 9),
+      .rx_af = GPIO_AF7,
+      .tx_af = GPIO_AF7,
+      .bus = APB2,
+      .irqn = USART1_IRQn,
 #ifdef MODULE_PERIPH_DMA
-        .dma = 0,
-        .dma_chan = 4
+      .dma = 0,
+      .dma_chan = 4
 #endif
-    }, {
-        .dev        = USART6,
-        .rcc_mask   = RCC_APB2ENR_USART6EN,
-        .rx_pin     = GPIO_PIN(PORT_C, 7), /* Arduino connector */
-        .tx_pin     = GPIO_PIN(PORT_C, 6), /* Arduino connector */
-        .rx_af      = GPIO_AF8,
-        .tx_af      = GPIO_AF8,
-        .bus        = APB2,
-        .irqn       = USART6_IRQn,
+    },
+    { .dev = UART5,
+      .rcc_mask = RCC_APB1ENR_UART5EN,
+      .rx_pin = GPIO_PIN(PORT_D, 2),    /* Pn CN2 */
+      .tx_pin = GPIO_PIN(PORT_C, 12),   /* pn CN2 */
+      .rx_af = GPIO_AF8,
+      .tx_af = GPIO_AF8,
+      .bus = APB1,
+      .irqn = UART5_IRQn,
 #ifdef MODULE_PERIPH_DMA
-        .dma = 1,
-        .dma_chan = 5
+      .dma = 1,
+      .dma_chan = 4
+#endif
+    },
+    { .dev = USART6,
+      .rcc_mask = RCC_APB2ENR_USART6EN,
+      .rx_pin = GPIO_PIN(PORT_C, 7), /* Arduino connector */
+      .tx_pin = GPIO_PIN(PORT_C, 6), /* Arduino connector */
+      .rx_af = GPIO_AF8,
+      .tx_af = GPIO_AF8,
+      .bus = APB2,
+      .irqn = USART6_IRQn,
+#ifdef MODULE_PERIPH_DMA
+      .dma = 1,
+      .dma_chan = 5
 #endif
     }
 };
 
 #define UART_0_ISR          (isr_usart1)
 #define UART_0_DMA_ISR      (isr_dma2_stream7)
-#define UART_1_ISR          (isr_usart6)
-#define UART_1_DMA_ISR      (isr_dma2_stream6)
+#define UART_1_ISR          (isr_uart5)
+#define UART_1_DMA_ISR      (isr_dma1_stream7)
+#define UART_2_ISR          (isr_usart6)
+#define UART_2_DMA_ISR      (isr_dma2_stream6)
 #define UART_NUMOF          ARRAY_SIZE(uart_config)
 /** @} */
 
