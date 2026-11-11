@@ -24,6 +24,9 @@ ifneq (,$(filter native native32 native64,$(BOARD)))
   CFLAGS += -DTHREAD_STACKSIZE_MAIN=64*1024
 else ifneq (,$(filter esp%,$(CPU_FAM)))
   CFLAGS += -DTHREAD_STACKSIZE_MAIN=4*1024
+else ifneq (,$(filter stm32f769i-disco,$(BOARD)))
+  # LVGL at 800x480 needs more than the 2 KiB used for the other boards
+  CFLAGS += -DTHREAD_STACKSIZE_MAIN=4*1024
 else
   CFLAGS += -DTHREAD_STACKSIZE_MAIN=2*1024
 endif
