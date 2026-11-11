@@ -54,30 +54,36 @@ typedef struct {
     uint32_t width;
 } ltdc_display_conf_t;
 
-/* allocate array of 16bit pixels for the framebuffer (TODO: use external SRAM via FMC) */
+#ifdef LTDC_FRAMEBUFFER_ADDR
+/* the board provides the framebuffer location, e.g. in FMC SDRAM when the
+ * internal RAM is too small for the display resolution */
+static uint16_t *_ltdc_frame_buffer = (uint16_t *)LTDC_FRAMEBUFFER_ADDR;
+#else
+/* allocate array of 16bit pixels for the framebuffer */
 static uint16_t _ltdc_frame_buffer[LCD_SCREEN_WIDTH * LCD_SCREEN_HEIGHT];
+#endif
+
+static void _init_pin(ltdc_gpio_t gpio)
+{
+    /* pins that are not routed are GPIO_UNDEF, see ltdc_gpio_t */
+    if (!gpio_is_valid(gpio.pin)) {
+        return;
+    }
+    gpio_init(gpio.pin, GPIO_OUT);
+    gpio_init_af(gpio.pin, gpio.af);
+}
 
 static void _init_gpio(void)
 {
-    gpio_init(ltdc_config.clk_pin.pin, GPIO_OUT);
-    gpio_init_af(ltdc_config.clk_pin.pin, ltdc_config.clk_pin.af);
-    gpio_init(ltdc_config.de_pin.pin, GPIO_OUT);
-    gpio_init_af(ltdc_config.de_pin.pin, ltdc_config.de_pin.af);
-    gpio_init(ltdc_config.hsync_pin.pin, GPIO_OUT);
-    gpio_init_af(ltdc_config.hsync_pin.pin, ltdc_config.hsync_pin.af);
-    gpio_init(ltdc_config.vsync_pin.pin, GPIO_OUT);
-    gpio_init_af(ltdc_config.vsync_pin.pin, ltdc_config.vsync_pin.af);
+    _init_pin(ltdc_config.clk_pin);
+    _init_pin(ltdc_config.de_pin);
+    _init_pin(ltdc_config.hsync_pin);
+    _init_pin(ltdc_config.vsync_pin);
 
     for (uint8_t pin = 0; pin < 8; ++pin) {
-        if (!gpio_is_valid(ltdc_config.r_pin[pin].pin)) {
-            continue;
-        }
-        gpio_init(ltdc_config.r_pin[pin].pin, GPIO_OUT);
-        gpio_init_af(ltdc_config.r_pin[pin].pin, ltdc_config.r_pin[pin].af);
-        gpio_init(ltdc_config.g_pin[pin].pin, GPIO_OUT);
-        gpio_init_af(ltdc_config.g_pin[pin].pin, ltdc_config.g_pin[pin].af);
-        gpio_init(ltdc_config.b_pin[pin].pin, GPIO_OUT);
-        gpio_init_af(ltdc_config.b_pin[pin].pin, ltdc_config.b_pin[pin].af);
+        _init_pin(ltdc_config.r_pin[pin]);
+        _init_pin(ltdc_config.g_pin[pin]);
+        _init_pin(ltdc_config.b_pin[pin]);
     }
 }
 
@@ -96,8 +102,14 @@ static void _configure_ltdc(void)
         .width = LCD_SCREEN_WIDTH + ltdc_config.hsync + ltdc_config.hbp + ltdc_config.hfp - 1,
     };
 
-    /* Configure the HS, VS, DE and PC polarity: all active low*/
+    /* HS, VS, DE and PC active low; the board can set the syncs active high */
     LTDC->GCR &= ~(LTDC_GCR_HSPOL | LTDC_GCR_VSPOL | LTDC_GCR_DEPOL | LTDC_GCR_PCPOL);
+    if (ltdc_config.hsync_pol_high) {
+        LTDC->GCR |= LTDC_GCR_HSPOL;
+    }
+    if (ltdc_config.vsync_pol_high) {
+        LTDC->GCR |= LTDC_GCR_VSPOL;
+    }
 
     /* Set Synchronization size */
     LTDC->SSCR &= ~(LTDC_SSCR_VSH | LTDC_SSCR_HSW);

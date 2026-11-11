@@ -15,6 +15,7 @@
  * @author          Alexandre Abadie <alexandre.abadie@inria.fr>
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "periph/cpu_gpio.h"
@@ -25,11 +26,30 @@ extern "C" {
 
 /**
  * @brief   LTDC GPIO configuration
+ *
+ * Set a pin to GPIO_UNDEF when it is not routed; a board whose LTDC output
+ * feeds an internal display interface, such as the DSI host, has no LTDC
+ * pins at all.
  */
 typedef struct {
     gpio_t pin;                     /**< GPIO pin */
     gpio_af_t af;                   /**< Alternate function */
 } ltdc_gpio_t;
+
+#ifdef DOXYGEN
+/**
+ * @brief   Framebuffer address override
+ *
+ * A board can define this macro to place the framebuffer at a fixed address,
+ * for example in FMC SDRAM when the display resolution does not fit in the
+ * internal RAM. The board has to keep this region out of any heap it
+ * configures in the same memory.
+ *
+ * @note The framebuffer holds LCD_SCREEN_WIDTH x LCD_SCREEN_HEIGHT pixels in
+ *       RGB565, so 2 bytes per pixel
+ */
+#  define LTDC_FRAMEBUFFER_ADDR
+#endif
 
 /**
  * @brief   LTDC Peripheral configuration
@@ -50,6 +70,10 @@ typedef struct {
     uint8_t hfp;                    /**< Horizontal front porch */
     uint8_t vbp;                    /**< Vertical back porch */
     uint8_t vfp;                    /**< Vertical front porch */
+    bool hsync_pol_high;            /**< HSYNC is active high (required when
+                                         the LTDC feeds the DSI host) */
+    bool vsync_pol_high;            /**< VSYNC is active high (required when
+                                         the LTDC feeds the DSI host) */
 } ltdc_conf_t;
 
 /**
