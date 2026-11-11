@@ -31,6 +31,15 @@
 #define CONFIG_CLOCK_HSE               MHZ(25)
 #endif
 
+/* The PLLSAI generates the LTDC pixel clock for the DSI display:
+ * 1 MHz VCO input x 220 / 2, divided by the fixed DIVR of 4 = 27.5 MHz */
+#ifndef CONFIG_CLOCK_PLLSAI_N
+#  define CONFIG_CLOCK_PLLSAI_N        (220)   /**< PLLSAI multiplier */
+#endif
+#ifndef CONFIG_CLOCK_PLLSAI_R
+#  define CONFIG_CLOCK_PLLSAI_R        (2)     /**< PLLSAI R divider */
+#endif
+
 #include "periph_cpu.h"
 #include "clk_conf.h"
 #include "cfg_rtt_default.h"
@@ -480,6 +489,85 @@ static const pwm_conf_t pwm_config[] = {
     },
 };
 #define PWM_NUMOF   ARRAY_SIZE(pwm_config)
+/** @} */
+
+/**
+ * @name    LTDC configuration
+ *
+ * The LTDC feeds the DSI host internally, so no pins are routed, and the
+ * sync signals are active high as the DSI host requires. The timings are
+ * the native ones of the NT35510 panel, which apply to both orientations.
+ * @{
+ */
+/** LTDC static configuration struct */
+static const ltdc_conf_t ltdc_config = {
+    .bus = APB2,
+    .rcc_mask = RCC_APB2ENR_LTDCEN,
+    .clk_pin = { .pin = GPIO_UNDEF },
+    .de_pin = { .pin = GPIO_UNDEF },
+    .hsync_pin = { .pin = GPIO_UNDEF },
+    .vsync_pin = { .pin = GPIO_UNDEF },
+    .r_pin = { { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF } },
+    .g_pin = { { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF } },
+    .b_pin = { { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF },
+               { .pin = GPIO_UNDEF } },
+    /* values below are the native timings of the NT35510 panel, the
+     * NT35510_480X800_* values of ST's component driver. They apply to both
+     * orientations: ST's NT35510_800X480_* values swap them and do not work.
+     * See https://github.com/STMicroelectronics/stm32-nt35510 (nt35510.h)
+     */
+    .hsync = 2,
+    .vsync = 120,
+    .hbp = 34,
+    .hfp = 34,
+    .vbp = 150,
+    .vfp = 150,
+    .hsync_pol_high = true,
+    .vsync_pol_high = true,
+};
+/** @} */
+
+/**
+ * @name    DSI host configuration
+ *
+ * The DSI PLL runs at 500 MHz from the 25 MHz HSE (25 / 5 x 100), which
+ * gives a 62.5 MHz lane byte clock on the two data lanes.
+ * @{
+ */
+/** DSI host static configuration struct */
+static const dsi_conf_t dsi_config = {
+    .rcc_mask = RCC_APB2ENR_DSIEN,
+    .pll_ndiv = 100,
+    .pll_idf = 5,
+    .pll_odf = 0,
+    .lanes = 2,
+    .channel = 0,
+    /* 20 us were enough for the NT35510 (measured), 40 us leave margin */
+    .max_read_time_us = 40,
+    /* PLLSAI R output divided by the DIVR of 4 that stmclk sets for the LTDC */
+    .pixel_clk_khz = CLOCK_PLL_SRC / CONFIG_CLOCK_PLL_M * CONFIG_CLOCK_PLLSAI_N /
+                     CONFIG_CLOCK_PLLSAI_R / 4 / KHZ(1),
+};
 /** @} */
 
 /**

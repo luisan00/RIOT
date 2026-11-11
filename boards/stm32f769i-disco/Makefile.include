@@ -14,6 +14,11 @@ OPENOCD_RESET_USE_CONNECT_ASSERT_SRST ?= 1
 # openocd programmer is supported
 PROGRAMMERS_SUPPORTED += openocd
 
-# heap configuration
+# heap configuration; when the display is used, the top MiB of the 16 MiB
+# SDRAM holds the LTDC framebuffer and is kept out of the heap
 FMC_RAM_ADDR=0xc0000000
-FMC_RAM_LEN=16384K
+ifneq (,$(filter periph_ltdc,$(USEMODULE)))
+  FMC_RAM_LEN=15360K
+else
+  FMC_RAM_LEN=16384K
+endif

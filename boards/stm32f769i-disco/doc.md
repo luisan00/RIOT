@@ -86,13 +86,17 @@ The Arduino pins D0-D15 and A0-A5 are mapped in `arduino_iomap.h`.
 | External SDRAM          | X       | FMC bank 5 at 0xc0000000                              |
 | SD card interface       | X       | SDMMC2, card detect on PI15                           |
 | Touch panel             | X       | FT6x06 on I2C4                                        |
-| LCD                     | -       |                                                       |
+| LCD                     | X       | DSI host in video mode, see the note below            |
 | Audio                   | -       |                                                       |
 | Digital microphones     | -       |                                                       |
 | External Quad-SPI flash | -       |                                                       |
 
 The USB OTG HS port works with TinyUSB; USBUS stack does not work on
 it yet.
+
+The display is supported on the MB1166-A09 display daughterboard, whose
+panel has an NT35510 controller. Older MB1166 revisions use an OTM8009A
+controller, which is not supported yet.
 
 ## Flashing the Board
 

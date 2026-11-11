@@ -52,26 +52,48 @@ extern "C" {
 /** @} */
 
 /**
- * @name DSI display panel signals
+ * @name DSI display panel
  *
  * The reset line is shared between the panel and the FT6x06 touch
- * controller, which does not respond on I2C while in reset.
+ * controller, which does not respond on I2C while in reset. The LTDC
+ * framebuffer lives in the top MiB of the FMC SDRAM, which the board
+ * keeps out of the SDRAM heap (see FMC_RAM_LEN in Makefile.include)
+ *
+ * @note The backlight follows nt35510_set_brightness(); the LCD_BL_CTRL
+ *       line (PI14) floats on the MB1166-A09 and is not used
  * @{
  */
 #define LCD_RST_PIN         GPIO_PIN(PORT_J, 15)    /**< Panel and touch reset (low active) */
+
+#define LCD_SCREEN_WIDTH        (800)           /**< Display width */
+#define LCD_SCREEN_HEIGHT       (480)           /**< Display height */
+#define LTDC_FRAMEBUFFER_ADDR   (0xc0f00000)    /**< Framebuffer in SDRAM */
+
+#define NT35510_PARAM_RST_PIN   LCD_RST_PIN     /**< NT35510 reset pin */
+
+/**
+ * @brief   LVGL memory pool size
+ *
+ * LVGL's default 5 KiB pool is too small for the 800x480 display.
+ */
+#ifndef LV_MEM_SIZE
+#  define LV_MEM_SIZE           (8U * 1024U)
+#endif
 /** @} */
 
 /**
  * @name FT6x06 touch panel configuration
  *
  * The controller responds at the driver's default address 0x38 (verified on
- * the MB1166-A09 panel).
+ * the MB1166-A09 panel). The coordinates follow the landscape orientation of
+ * the display.
  * @{
  */
 #define FT5X06_PARAM_I2C_DEV    I2C_DEV(1)              /**< I2C device */
 #define FT5X06_PARAM_INT_PIN    GPIO_PIN(PORT_I, 13)    /**< Interrupt pin */
-#define FT5X06_PARAM_XMAX       (800)                   /**< Max width */
-#define FT5X06_PARAM_YMAX       (480)                   /**< Max height */
+#define FT5X06_PARAM_XMAX       LCD_SCREEN_WIDTH        /**< Max width */
+#define FT5X06_PARAM_YMAX       LCD_SCREEN_HEIGHT       /**< Max height */
+#define FT5X06_PARAM_XYCONV     (FT5X06_SWAP_XY | FT5X06_MIRROR_Y) /**< Swap XY, then mirror Y */
 #define FT5X06_PARAM_TYPE       FT5X06_TYPE_FT6X06      /**< Device type */
 /** @} */
 

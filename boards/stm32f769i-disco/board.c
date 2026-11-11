@@ -28,4 +28,5 @@ void board_init(void)
         gpio_init(LCD_RST_PIN, GPIO_OUT);
         gpio_set(LCD_RST_PIN);
     }
+
 }

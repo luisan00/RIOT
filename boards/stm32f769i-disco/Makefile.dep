@@ -6,6 +6,16 @@ ifneq (,$(filter netdev_default,$(USEMODULE)))
   USEMODULE += stm32_eth
 endif
 
+ifneq (,$(filter disp_dev,$(USEMODULE)))
+  USEMODULE += nt35510
+endif
+
+# the LTDC framebuffer lives in the FMC SDRAM
+ifneq (,$(filter periph_ltdc,$(USEMODULE)))
+  FEATURES_REQUIRED += periph_fmc
+  FEATURES_REQUIRED += periph_fmc_sdram
+endif
+
 ifneq (,$(filter touch_dev,$(USEMODULE)))
   USEMODULE += ft5x06
 endif
