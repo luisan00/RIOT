@@ -524,6 +524,9 @@ groups:
   - name: periph_ltdc
     help: An LCD/TFT Display Controller (LTDC) peripheral is present. (Currently
           only provided by some STM32 MCUs.)
+  - name: periph_dsi
+    help: A MIPI Display Serial Interface (DSI) host peripheral is present.
+          (Currently only provided by some STM32 MCUs.)
   - name: periph_pio
     help: A Programmable IO (PIO) is present. (Currently only RP2040)
   - name: periph_pdm

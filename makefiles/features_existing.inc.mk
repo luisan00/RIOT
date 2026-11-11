@@ -157,6 +157,7 @@ FEATURES_EXISTING := \
     periph_dac \
     periph_dac_play \
     periph_dma \
+    periph_dsi \
     periph_ecc_ed25519 \
     periph_ecc_p192r1 \
     periph_ecc_p256r1 \

@@ -63,6 +63,7 @@
 #include "periph/cpu_backup_ram.h"
 #include "periph/cpu_common.h"
 #include "periph/cpu_dma.h"
+#include "periph/cpu_dsi.h"
 #include "periph/cpu_eth.h"
 #include "periph/cpu_fmc.h"
 #include "periph/cpu_gpio.h"
