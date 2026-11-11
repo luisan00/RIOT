@@ -1,0 +1,5 @@
+FEATURES_REQUIRED += periph_dsi
+FEATURES_REQUIRED += periph_gpio
+FEATURES_REQUIRED += periph_ltdc
+USEMODULE += ztimer
+USEMODULE += ztimer_msec

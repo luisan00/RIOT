@@ -26,7 +26,13 @@ void auto_init_screen(void)
             extern void auto_init_ili9341(void);
             auto_init_ili9341();
         }
-        if (IS_USED(MODULE_PERIPH_LTDC)) {
+        if (IS_USED(MODULE_NT35510)) {
+            extern void auto_init_nt35510(void);
+            auto_init_nt35510();
+        }
+        if (IS_USED(MODULE_PERIPH_LTDC) && !IS_USED(MODULE_PERIPH_DSI)) {
+            /* when the LTDC feeds the DSI host, the panel driver brings up
+             * the LTDC and registers its display device */
             extern void auto_init_periph_ltdc(void);
             auto_init_periph_ltdc();
         }
