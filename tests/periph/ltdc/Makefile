@@ -3,6 +3,10 @@ include ../Makefile.periph_common
 
 FEATURES_REQUIRED += periph_ltdc
 
+# On boards whose LTDC feeds a DSI host, the panel stays dark until its driver
+# has set it up over DSI. Use tests/drivers/disp_dev on those boards.
+BOARDS_UNSUPPORTED += stm32f769i-disco
+
 USEMODULE += ztimer
 USEMODULE += ztimer_msec
 
