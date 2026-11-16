@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "net/ethernet/hdr.h"
+#include "net/eui48.h"
 #include "net/gnrc.h"
 #include "net/gnrc/netif/ethernet.h"
 #include "net/netdev/eth.h"
@@ -58,6 +59,16 @@ int gnrc_netif_ethernet_create(gnrc_netif_t *netif, char *stack, int stacksize,
 static inline void _addr_set_broadcast(uint8_t *dst)
 {
     memset(dst, 0xff, ETHERNET_ADDR_LEN);
+}
+
+static inline bool _addr_is_broadcast(const uint8_t *addr)
+{
+    for (unsigned i = 0; i < ETHERNET_ADDR_LEN; i++) {
+        if (addr[i] != 0xff) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static inline void _addr_set_multicast(gnrc_netif_t *netif, uint8_t *dst,
@@ -247,6 +258,15 @@ static gnrc_pktsnip_t *_recv(gnrc_netif_t *netif)
         gnrc_netif_hdr_set_src_addr(netif_hdr->data, hdr->src, ETHERNET_ADDR_LEN);
         gnrc_netif_hdr_set_dst_addr(netif_hdr->data, hdr->dst, ETHERNET_ADDR_LEN);
         gnrc_netif_hdr_set_netif(netif_hdr->data, netif);
+        /* flag frames sent to the broadcast address or to a group address */
+        if (_addr_is_broadcast(hdr->dst)) {
+            ((gnrc_netif_hdr_t *)netif_hdr->data)->flags |=
+                GNRC_NETIF_HDR_FLAGS_BROADCAST;
+        }
+        else if (hdr->dst[0] & EUI48_GROUP_FLAG) {
+            ((gnrc_netif_hdr_t *)netif_hdr->data)->flags |=
+                GNRC_NETIF_HDR_FLAGS_MULTICAST;
+        }
         if (rx_info.flags & NETDEV_ETH_RX_INFO_FLAG_TIMESTAMP) {
             gnrc_netif_hdr_set_timestamp(netif_hdr->data, rx_info.timestamp);
         }
