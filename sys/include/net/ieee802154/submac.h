@@ -135,6 +135,19 @@ extern "C" {
 #include "net/ieee802154/radio.h"
 
 /**
+ * @brief   ACK timeout of the SubMAC for the legacy O-QPSK PHY, in µs
+ *
+ * The default is the one IEEE 802.15.4 defines for that PHY: 54 symbols of
+ * 16 µs. Radios that only emulate the timing may need more, such as
+ * @ref drivers_socket_zep on native, where every frame and its ACK go through a
+ * dispatcher over UDP: an ACK that arrives late makes the SubMAC retransmit the
+ * frame and, after the last retry, report the transmission as failed.
+ */
+#ifndef CONFIG_IEEE802154_SUBMAC_ACK_TIMEOUT_US
+#define CONFIG_IEEE802154_SUBMAC_ACK_TIMEOUT_US     (864U)
+#endif
+
+/**
  * @brief IEEE 802.15.4 SubMAC forward declaration
  */
 typedef struct ieee802154_submac ieee802154_submac_t;

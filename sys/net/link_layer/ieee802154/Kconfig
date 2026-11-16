@@ -75,6 +75,14 @@ config IEEE802154_DEFAULT_MAX_FRAME_RETRANS
     int "IEEE802.15.4 default maximum frame retransmissions"
     default 4
 
+config IEEE802154_SUBMAC_ACK_TIMEOUT_US
+    int "IEEE802.15.4 SubMAC ACK timeout for the legacy O-QPSK PHY, in µs"
+    default 864
+    help
+        ACK timeout of the SubMAC for the legacy O-QPSK PHY. The default is
+        the one IEEE 802.15.4 defines. Radios that only emulate the timing,
+        such as socket_zep on native, may need more.
+
 config IEEE802154_AUTO_ACK_DISABLE
     bool "Disable Auto ACK support" if (!USEPKG_OPENWSN && !USEPKG_OPENDSME)
     default y if (USEPKG_OPENWSN || USEPKG_OPENDSME)
