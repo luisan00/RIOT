@@ -1,3 +1,6 @@
 USEMODULE += gnrc_icmpv6_error
 USEMODULE += gnrc_ipv6
 USEMODULE += gnrc_netapi_callbacks
+
+# a token bucket big enough for the tests that don't test the rate limit
+CFLAGS += -DCONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE=100

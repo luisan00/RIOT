@@ -21,6 +21,7 @@
 #include "net/icmpv6.h"
 #include "net/ipv6/hdr.h"
 #include "net/protnum.h"
+#include "ztimer.h"
 
 #include "tests-gnrc_icmpv6_error.h"
 
@@ -275,6 +276,47 @@ static void test_gnrc_icmpv6_error__l2_broadcast_multicast(void)
     }
 }
 
+/* sends destination unreachable messages until the rate limit refuses one,
+ * and returns how many were sent before */
+static unsigned _send_until_refused(const gnrc_pktsnip_t *orig_pkt)
+{
+    unsigned sent = 0;
+
+    for (unsigned i = 0; i <= CONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE; i++) {
+        _sent = 0;
+        gnrc_icmpv6_error_dst_unr_send(ICMPV6_ERROR_DST_UNR_NO_ROUTE, orig_pkt);
+        if (_sent == 0) {
+            break;
+        }
+        sent++;
+    }
+    return sent;
+}
+
+/* see https://tools.ietf.org/html/rfc4443#section-2.4 (f); this test has to
+ * be the last one, as it empties the token bucket */
+static void test_gnrc_icmpv6_error__rate_limit(void)
+{
+    uint8_t udp[] = { 0x12, 0x34, 0x00, 0x09, 0x00, 0x08, 0x00, 0x00 };
+    gnrc_pktsnip_t *pkt = _orig_pkt(false, PROTNUM_UDP, udp, sizeof(udp),
+                                    NULL, 0);
+    uint32_t start, elapsed;
+    unsigned sent;
+
+    /* empty the bucket: no more than a full bucket gets through */
+    sent = _send_until_refused(pkt);
+    TEST_ASSERT(sent <= CONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE);
+    /* the bucket refills with CONFIG_GNRC_ICMPV6_ERROR_RATE tokens per second;
+     * a fraction of a token may have been left in it */
+    start = ztimer_now(ZTIMER_MSEC);
+    ztimer_sleep(ZTIMER_MSEC, 1000U / CONFIG_GNRC_ICMPV6_ERROR_RATE);
+    sent = _send_until_refused(pkt);
+    elapsed = ztimer_now(ZTIMER_MSEC) - start;
+    TEST_ASSERT(sent >= 1);
+    TEST_ASSERT(sent <= ((elapsed * CONFIG_GNRC_ICMPV6_ERROR_RATE) / 1000U) + 1);
+    TEST_ASSERT(gnrc_pktbuf_is_empty());
+}
+
 static Test *tests_gnrc_icmpv6_error_tests(void)
 {
     EMB_UNIT_TESTFIXTURES(fixtures) {
@@ -286,6 +328,8 @@ static Test *tests_gnrc_icmpv6_error_tests(void)
         new_TestFixture(test_gnrc_icmpv6_error__icmpv6_error_first_fragment),
         new_TestFixture(test_gnrc_icmpv6_error__icmpv6_type_unknown),
         new_TestFixture(test_gnrc_icmpv6_error__l2_broadcast_multicast),
+        /* empties the token bucket, so it has to be the last one */
+        new_TestFixture(test_gnrc_icmpv6_error__rate_limit),
     };
 
     EMB_UNIT_TESTCALLER(gnrc_icmpv6_error_tests, set_up, tear_down, fixtures);
