@@ -78,6 +78,7 @@ config IEEE802154_DEFAULT_MAX_FRAME_RETRANS
 config IEEE802154_SUBMAC_ACK_TIMEOUT_US
     int "IEEE802.15.4 SubMAC ACK timeout for the legacy O-QPSK PHY, in µs"
     default 864
+    range 1 65535
     help
         ACK timeout of the SubMAC for the legacy O-QPSK PHY. The default is
         the one IEEE 802.15.4 defines. Radios that only emulate the timing,

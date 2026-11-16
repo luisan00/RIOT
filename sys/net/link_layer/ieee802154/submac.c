@@ -1014,6 +1014,8 @@ static inline uint16_t _mr_fsk_ack_timeout_us(const ieee802154_mr_fsk_conf_t *co
 static int ieee802154_submac_config_phy(ieee802154_submac_t *submac,
                                         const ieee802154_phy_conf_t *conf)
 {
+    static_assert(ACK_TIMEOUT_US <= UINT16_MAX,
+                  "submac: ACK timeout overflows ack_timeout_us");
     switch (conf->phy_mode) {
     case IEEE802154_PHY_OQPSK:
         submac->ack_timeout_us = ACK_TIMEOUT_US;
