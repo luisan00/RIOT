@@ -30,6 +30,33 @@
 extern "C" {
 #endif
 
+/**
+ * @defgroup net_gnrc_icmpv6_error_conf GNRC ICMPv6 error compile configurations
+ * @ingroup  net_gnrc_conf
+ *
+ * The rate of ICMPv6 error messages is limited with a token bucket, see
+ * [RFC 4443, section 2.4 (f)](https://tools.ietf.org/html/rfc4443#section-2.4).
+ * The defaults are the example the RFC gives for a small device.
+ * @{
+ */
+/**
+ * @brief   Number of ICMPv6 error messages that may be sent in a burst
+ */
+#ifndef CONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE
+#define CONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE    (10U)
+#endif
+
+/**
+ * @brief   Number of ICMPv6 error messages that may be sent per second, on
+ *          average
+ *
+ * 0 disables the rate limit, which RFC 4443 requires.
+ */
+#ifndef CONFIG_GNRC_ICMPV6_ERROR_RATE
+#define CONFIG_GNRC_ICMPV6_ERROR_RATE           (10U)
+#endif
+/** @} */
+
 #if defined(MODULE_GNRC_ICMPV6_ERROR) || defined(DOXYGEN)
 /**
  * @brief   Sends an ICMPv6 destination unreachable message for sending.
