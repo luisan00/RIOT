@@ -330,6 +330,22 @@ static gnrc_netif_t *_acquire_new_iface(unsigned iface)
     return netif;
 }
 
+/* checks if a reactive routing protocol is asked for a route, which
+ * _nib_get_route() does when it doesn't find one */
+static bool _route_requested(void)
+{
+#if IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ROUTER)
+    gnrc_netif_t *netif = NULL;
+
+    while ((netif = gnrc_netif_iter(netif))) {
+        if (netif->ipv6.route_info_cb != NULL) {
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
 int gnrc_ipv6_nib_get_next_hop_l2addr(const ipv6_addr_t *dst,
                                       gnrc_netif_t *netif, gnrc_pktsnip_t *pkt,
                                       gnrc_ipv6_nib_nc_t *nce)
@@ -382,6 +398,7 @@ int gnrc_ipv6_nib_get_next_hop_l2addr(const ipv6_addr_t *dst,
     DEBUG("nib: %s is off-link, resolve route\n",
           ipv6_addr_to_str(addr_str, dst, sizeof(addr_str)));
     res = _nib_get_route(dst, pkt, &route);
+    bool route_requested = (res < 0) && _route_requested();
 
    /* If ARSM is not active only use link-local as next hop */
    if (!IS_ACTIVE(CONFIG_GNRC_IPV6_NIB_ARSM) &&
@@ -396,7 +413,12 @@ int gnrc_ipv6_nib_get_next_hop_l2addr(const ipv6_addr_t *dst,
               ipv6_addr_to_str(addr_str, dst, sizeof(addr_str)));
 
         if (pkt != NULL) {
-            gnrc_icmpv6_error_dst_unr_send(ICMPV6_ERROR_DST_UNR_NO_ROUTE, pkt);
+            /* a reactive routing protocol may have queued the packet to send
+             * it once it finds a route, so leave reporting a failure to it */
+            if (!route_requested) {
+                gnrc_icmpv6_error_dst_unr_send(ICMPV6_ERROR_DST_UNR_NO_ROUTE,
+                                               pkt);
+            }
             gnrc_pktbuf_release_error(pkt, ENETUNREACH);
         }
         res = -ENETUNREACH;

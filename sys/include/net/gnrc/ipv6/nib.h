@@ -257,6 +257,10 @@ enum {
      * The `ctx_addr` will be the destination address of the unknown route,
      * `ctx` a pointer to the packet as `gnrc_pktsnip_t` that caused the route
      * look-up (to possibly queue it for later sending).
+     *
+     * If an interface has a callback for this query, the NIB does not answer
+     * the packet with an ICMPv6 destination unreachable message: the routing
+     * protocol is expected to report the failure if it doesn't find a route.
      */
     GNRC_IPV6_NIB_ROUTE_INFO_TYPE_RRQ,
 
