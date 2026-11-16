@@ -371,6 +371,18 @@ static bool _is_error_or_redirect(const gnrc_pktsnip_t *orig_pkt,
     return !(type & ICMPV6_INFO_FLAG) || (type == ICMPV6_REDIRECT);
 }
 
+/* checks if the invoking packet was sent as link-layer broadcast or multicast */
+static bool _is_l2_bcast_or_mcast(const gnrc_pktsnip_t *orig_pkt)
+{
+    /* discarding const qualifier is safe here */
+    gnrc_pktsnip_t *netif = gnrc_pktsnip_search_type((gnrc_pktsnip_t *)orig_pkt,
+                                                     GNRC_NETTYPE_NETIF);
+
+    return (netif != NULL) &&
+           (((gnrc_netif_hdr_t *)netif->data)->flags &
+            (GNRC_NETIF_HDR_FLAGS_BROADCAST | GNRC_NETIF_HDR_FLAGS_MULTICAST));
+}
+
 static gnrc_pktsnip_t *_check_ipv6_hdr(const gnrc_pktsnip_t *orig_pkt,
                                        uint8_t type, uint8_t code)
 {
@@ -386,9 +398,11 @@ static gnrc_pktsnip_t *_check_ipv6_hdr(const gnrc_pktsnip_t *orig_pkt,
         ipv6 = NULL;
     }
     /* ipv6_hdr->dst may only be multicast for Packet Too Big Messages
-     * and Parameter Problem Messages with code 2, see
-     * https://tools.ietf.org/html/rfc4443#section-2.4 (e.3) */
-    else if (ipv6_addr_is_multicast(&ipv6_hdr->dst)) {
+     * and Parameter Problem Messages with code 2, and the same goes for
+     * packets sent as link-layer broadcast or multicast, see
+     * https://tools.ietf.org/html/rfc4443#section-2.4 (e.3), (e.4) and (e.5) */
+    else if (ipv6_addr_is_multicast(&ipv6_hdr->dst) ||
+             _is_l2_bcast_or_mcast(orig_pkt)) {
         if ((type != ICMPV6_PKT_TOO_BIG) &&
             ((type != ICMPV6_PARAM_PROB) ||
              (code != ICMPV6_ERROR_PARAM_PROB_OPT))) {
