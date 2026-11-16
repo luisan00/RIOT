@@ -188,7 +188,7 @@ typedef struct __attribute__((packed)) {
  * @extends icmpv6_hdr_t
  *
  * @see <a href="https://tools.ietf.org/html/rfc4443#section-3.4">
- *          RFC 4443, section 3.3
+ *          RFC 4443, section 3.4
  *      </a>
  */
 typedef struct __attribute__((packed)) {
