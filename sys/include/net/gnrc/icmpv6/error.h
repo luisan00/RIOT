@@ -37,8 +37,9 @@ extern "C" {
  * @pre     @p orig_pkt contains a packet snip of type @ref GNRC_NETTYPE_IPV6
  *
  * @note    Won't send if source address of @p orig_pkt is unspecified or
- *          multicast, or if @p orig_pkt is an ICMPv6 error message or an
- *          ICMPv6 redirect message
+ *          multicast, if @p orig_pkt was sent to a multicast address or as
+ *          link-layer broadcast or multicast, or if @p orig_pkt is an ICMPv6
+ *          error message or an ICMPv6 redirect message
  *
  * @param[in] code      The [code for the message](@ref net_icmpv6_error_dst_unr_codes).
  * @param[in] orig_pkt  The invoking packet.
@@ -66,8 +67,9 @@ void gnrc_icmpv6_error_pkt_too_big_send(uint32_t mtu,
  * @pre     @p orig_pkt contains a packet snip of type @ref GNRC_NETTYPE_IPV6
  *
  * @note    Won't send if source address of @p orig_pkt is unspecified or
- *          multicast, or if @p orig_pkt is an ICMPv6 error message or an
- *          ICMPv6 redirect message
+ *          multicast, if @p orig_pkt was sent to a multicast address or as
+ *          link-layer broadcast or multicast, or if @p orig_pkt is an ICMPv6
+ *          error message or an ICMPv6 redirect message
  *
  * @param[in] code      The [code for the message](@ref net_icmpv6_error_time_exc_codes).
  * @param[in] orig_pkt  The invoking packet.
@@ -82,8 +84,10 @@ void gnrc_icmpv6_error_time_exc_send(uint8_t code,
  * @pre     @p orig_pkt contains a packet snip of type @ref GNRC_NETTYPE_IPV6
  *
  * @note    Won't send if source address of @p orig_pkt is unspecified or
- *          multicast, or if @p orig_pkt is an ICMPv6 error message or an
- *          ICMPv6 redirect message
+ *          multicast, if @p orig_pkt was sent to a multicast address or as
+ *          link-layer broadcast or multicast (unless @p code is
+ *          ICMPV6_ERROR_PARAM_PROB_OPT), or if @p orig_pkt is an ICMPv6 error
+ *          message or an ICMPv6 redirect message
  *
  * @param[in] code      The [code for the message](@ref net_icmpv6_error_param_prob_codes).
  * @param[in] ptr       Pointer to the erroneous octet in @p orig_pkt.
