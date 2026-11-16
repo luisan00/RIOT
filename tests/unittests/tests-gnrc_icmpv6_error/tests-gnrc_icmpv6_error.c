@@ -15,6 +15,7 @@
 
 #include "embUnit.h"
 #include "net/gnrc/icmpv6/error.h"
+#include "net/gnrc/netif/hdr.h"
 #include "net/gnrc/netreg.h"
 #include "net/gnrc/pktbuf.h"
 #include "net/icmpv6.h"
@@ -51,10 +52,13 @@ static gnrc_netreg_entry_cbd_t _ipv6_cbd = { .cb = _ipv6_cb };
 static gnrc_netreg_entry_t _ipv6_entry =
     GNRC_NETREG_ENTRY_INIT_CB(GNRC_NETREG_DEMUX_CTX_ALL, &_ipv6_cbd);
 
-/* the invoking packet: an IPv6 header followed by one or two parts */
+/* the invoking packet: an IPv6 header followed by one or two parts, and
+ * optionally a netif header */
 static ipv6_hdr_t _ipv6_hdr;
 static gnrc_pktsnip_t _ipv6_snip;
 static gnrc_pktsnip_t _part_snips[2];
+static gnrc_netif_hdr_t _netif_hdr;
+static gnrc_pktsnip_t _netif_snip;
 
 static void set_up(void)
 {
@@ -106,6 +110,25 @@ static gnrc_pktsnip_t *_orig_pkt(bool rcv_order, uint8_t nh,
         _part_snips[0].next = &_part_snips[1];
     }
     return &_ipv6_snip;
+}
+
+static gnrc_pktsnip_t *_add_netif_hdr(gnrc_pktsnip_t *orig_pkt, bool rcv_order,
+                                      uint8_t flags)
+{
+    gnrc_netif_hdr_init(&_netif_hdr, 0, 0);
+    _netif_hdr.flags = flags;
+    _netif_snip = (gnrc_pktsnip_t){
+        .data = &_netif_hdr, .size = sizeof(_netif_hdr),
+        .users = 1, .type = GNRC_NETTYPE_NETIF,
+    };
+    if (rcv_order) {
+        /* the netif header comes last */
+        _ipv6_snip.next = &_netif_snip;
+        return orig_pkt;
+    }
+    /* the netif header comes first */
+    _netif_snip.next = orig_pkt;
+    return &_netif_snip;
 }
 
 /* asks for every kind of error message and returns how many were sent */
@@ -223,6 +246,35 @@ static void test_gnrc_icmpv6_error__icmpv6_type_unknown(void)
     _check(PROTNUM_ICMPV6, none, 0, NULL, 0, true);
 }
 
+/* see https://tools.ietf.org/html/rfc4443#section-2.4 (e.4) and (e.5) */
+static void test_gnrc_icmpv6_error__l2_broadcast_multicast(void)
+{
+    const uint8_t flags[] = { GNRC_NETIF_HDR_FLAGS_BROADCAST,
+                              GNRC_NETIF_HDR_FLAGS_MULTICAST };
+    uint8_t udp[] = { 0x12, 0x34, 0x00, 0x09, 0x00, 0x08, 0x00, 0x00 };
+
+    for (unsigned i = 0; i < sizeof(flags); i++) {
+        for (unsigned order = 0; order < 2; order++) {
+            bool rcv_order = (order == 1);
+            gnrc_pktsnip_t *pkt = _orig_pkt(rcv_order, PROTNUM_UDP, udp,
+                                            sizeof(udp), NULL, 0);
+
+            pkt = _add_netif_hdr(pkt, rcv_order, flags[i]);
+            /* packet too big and parameter problem with code 2 are the
+             * exceptions, but sending them would need a real interface */
+            _sent = 0;
+            gnrc_icmpv6_error_dst_unr_send(ICMPV6_ERROR_DST_UNR_PORT, pkt);
+            gnrc_icmpv6_error_time_exc_send(ICMPV6_ERROR_TIME_EXC_HL, pkt);
+            if (rcv_order) {
+                gnrc_icmpv6_error_param_prob_send(
+                    ICMPV6_ERROR_PARAM_PROB_HDR_FIELD, &_ipv6_hdr.nh, pkt);
+            }
+            TEST_ASSERT_EQUAL_INT(0, _sent);
+            TEST_ASSERT(gnrc_pktbuf_is_empty());
+        }
+    }
+}
+
 static Test *tests_gnrc_icmpv6_error_tests(void)
 {
     EMB_UNIT_TESTFIXTURES(fixtures) {
@@ -233,6 +285,7 @@ static Test *tests_gnrc_icmpv6_error_tests(void)
         new_TestFixture(test_gnrc_icmpv6_error__icmpv6_error_after_ext_hdrs),
         new_TestFixture(test_gnrc_icmpv6_error__icmpv6_error_first_fragment),
         new_TestFixture(test_gnrc_icmpv6_error__icmpv6_type_unknown),
+        new_TestFixture(test_gnrc_icmpv6_error__l2_broadcast_multicast),
     };
 
     EMB_UNIT_TESTCALLER(gnrc_icmpv6_error_tests, set_up, tear_down, fixtures);
