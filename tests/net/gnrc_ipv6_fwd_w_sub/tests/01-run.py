@@ -27,6 +27,10 @@ def testfunc(child):
     child.expect(r"00000010  02  CA  4B  EF  F4  C2  DE  01  20  01  0D  B8  00  00  AB  CD")
     child.expect(r"00000020  55  44  33  FF  FE  22  11  00  54  B8  59  AF  3A  B4  5C  85")
     child.expect(r"00000030  1E  CE  E2  EB  05  4E  A3  85")
+    child.sendline("run_rrq_test")
+    child.expect(r"Destination unreachable messages without routing protocol: 1")
+    child.expect(r"Route request for 2001:db8:0:ef02::1")
+    child.expect(r"Destination unreachable messages with routing protocol: 0")
     child.sendline("pktbuf")
     child.expect(r"packet buffer: first byte: ((0x)?[0-9a-fA-F]+), "
                  r"last byte: (0x)?[0-9a-fA-F]+ \(size: (\d+)\)")

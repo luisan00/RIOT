@@ -2,6 +2,8 @@ DEVELHELP := 1
 include ../Makefile.net_common
 
 USEMODULE += gnrc_ipv6_router_default
+USEMODULE += gnrc_icmpv6_error
+USEMODULE += gnrc_netapi_callbacks
 USEMODULE += gnrc_netif
 USEMODULE += shell_cmd_gnrc_pktbuf
 USEMODULE += netdev_eth
