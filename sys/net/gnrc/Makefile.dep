@@ -322,6 +322,7 @@ ifneq (,$(filter gnrc_icmpv6_error,$(USEMODULE)))
   USEMODULE += gnrc_icmpv6
   USEMODULE += gnrc_ipv6_hdr
   USEMODULE += gnrc_netif_hdr
+  USEMODULE += ztimer_msec
 endif
 
 ifneq (,$(filter gnrc_icmpv6,$(USEMODULE)))

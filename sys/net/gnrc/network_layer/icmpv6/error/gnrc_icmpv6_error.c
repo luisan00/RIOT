@@ -21,6 +21,8 @@
 #include "net/ipv6/ext.h"
 #include "net/ipv6/ext/frag.h"
 #include "net/protnum.h"
+#include "irq.h"
+#include "ztimer.h"
 
 #define ENABLE_DEBUG 0
 #include "debug.h"
@@ -371,6 +373,55 @@ static bool _is_error_or_redirect(const gnrc_pktsnip_t *orig_pkt,
     return !(type & ICMPV6_INFO_FLAG) || (type == ICMPV6_REDIRECT);
 }
 
+#if CONFIG_GNRC_ICMPV6_ERROR_RATE > 0
+/* a token of the token bucket, in thousandths */
+#define ICMPV6_ERROR_TOKEN  (1000U)
+
+/* tokens in the bucket, in thousandths, and when the bucket was last filled */
+static uint32_t _tokens = CONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE *
+                          ICMPV6_ERROR_TOKEN;
+static uint32_t _tokens_time;
+
+/**
+ * @brief   Takes a token from the token bucket that limits the rate of
+ *          ICMPv6 error messages
+ *
+ * @see https://tools.ietf.org/html/rfc4443#section-2.4 (f)
+ *
+ * @return  true, if there was a token, i.e. the error message may be sent
+ */
+static bool _take_token(void)
+{
+    const uint32_t full = CONFIG_GNRC_ICMPV6_ERROR_BUCKET_SIZE *
+                          ICMPV6_ERROR_TOKEN;
+    bool taken = false;
+    unsigned state = irq_disable();
+    uint32_t now = ztimer_now(ZTIMER_MSEC);
+    uint32_t elapsed = now - _tokens_time;
+
+    _tokens_time = now;
+    /* every millisecond adds CONFIG_GNRC_ICMPV6_ERROR_RATE thousandths of a
+     * token; check for a full bucket first, so the product can't overflow */
+    if (elapsed >= (full / CONFIG_GNRC_ICMPV6_ERROR_RATE)) {
+        _tokens = full;
+    }
+    else {
+        _tokens = MIN(full, _tokens + (elapsed * CONFIG_GNRC_ICMPV6_ERROR_RATE));
+    }
+    if (_tokens >= ICMPV6_ERROR_TOKEN) {
+        _tokens -= ICMPV6_ERROR_TOKEN;
+        taken = true;
+    }
+    irq_restore(state);
+    return taken;
+}
+#else
+static inline bool _take_token(void)
+{
+    return true;
+}
+#endif
+
 /* checks if the invoking packet was sent as link-layer broadcast or multicast */
 static bool _is_l2_bcast_or_mcast(const gnrc_pktsnip_t *orig_pkt)
 {
@@ -412,6 +463,11 @@ static gnrc_pktsnip_t *_check_ipv6_hdr(const gnrc_pktsnip_t *orig_pkt,
     /* see https://tools.ietf.org/html/rfc4443#section-2.4 (e.1) and (e.2) */
     if ((ipv6 != NULL) && _is_error_or_redirect(orig_pkt, ipv6)) {
         DEBUG("gnrc_icmpv6_error: not answering ICMPv6 error or redirect\n");
+        ipv6 = NULL;
+    }
+    /* see https://tools.ietf.org/html/rfc4443#section-2.4 (f) */
+    if ((ipv6 != NULL) && !_take_token()) {
+        DEBUG("gnrc_icmpv6_error: rate limit reached\n");
         ipv6 = NULL;
     }
     return ipv6;
