@@ -137,6 +137,32 @@ def testfunc(child):
     child.expect("src_l2addr: 3E:E6:B5:22:FD:0B")
     child.expect("dst_l2addr: 3E:E6:B5:22:FD:0A")
     child.expect(r"~~ PKT    -  2 snips, total size:  \d+ byte")
+    # test_netapi_recv__broadcast_ethernet_payload
+    child.expect("pktdump dumping Ethernet broadcast packet with payload "
+                 "12 34 45 56")
+    child.expect("PKTDUMP: data received:")
+    child.expect(r"~~ SNIP  0 - size:   4 byte, type: NETTYPE_UNDEF \(0\)")
+    child.expect("00000000  12  34  45  56")
+    child.expect(r"~~ SNIP  1 - size:  \d+ byte, type: NETTYPE_NETIF \(-1\)")
+    child.expect(r"if_pid: (\d+)  rssi: -?\d+  lqi: \d+")
+    assert 0 < int(child.match.group(1))
+    child.expect("flags: BROADCAST")
+    child.expect("src_l2addr: 3E:E6:B5:22:FD:0B")
+    child.expect("dst_l2addr: FF:FF:FF:FF:FF:FF")
+    child.expect(r"~~ PKT    -  2 snips, total size:  \d+ byte")
+    # test_netapi_recv__multicast_ethernet_payload
+    child.expect("pktdump dumping Ethernet multicast packet with payload "
+                 "12 34 45 56")
+    child.expect("PKTDUMP: data received:")
+    child.expect(r"~~ SNIP  0 - size:   4 byte, type: NETTYPE_UNDEF \(0\)")
+    child.expect("00000000  12  34  45  56")
+    child.expect(r"~~ SNIP  1 - size:  \d+ byte, type: NETTYPE_NETIF \(-1\)")
+    child.expect(r"if_pid: (\d+)  rssi: -?\d+  lqi: \d+")
+    assert 0 < int(child.match.group(1))
+    child.expect("flags: MULTICAST")
+    child.expect("src_l2addr: 3E:E6:B5:22:FD:0B")
+    child.expect("dst_l2addr: 33:33:00:00:00:01")
+    child.expect(r"~~ PKT    -  2 snips, total size:  \d+ byte")
 
 
 if __name__ == "__main__":

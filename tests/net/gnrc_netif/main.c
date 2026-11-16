@@ -1696,6 +1696,26 @@ static void test_netapi_recv__ipv6_ethernet_payload(void)
     _test_trigger_recv(&ethernet_netif, data, sizeof(data));
 }
 
+static void test_netapi_recv__broadcast_ethernet_payload(void)
+{
+    static const uint8_t data[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        LA1, LA2, LA3, LA6, LA7, LA8 + 1,
+        0xff, 0xff, 0x12, 0x34, 0x45, 0x56 };
+
+    puts("pktdump dumping Ethernet broadcast packet with payload 12 34 45 56");
+    _test_trigger_recv(&ethernet_netif, data, sizeof(data));
+}
+
+static void test_netapi_recv__multicast_ethernet_payload(void)
+{
+    static const uint8_t data[] = { 0x33, 0x33, 0x00, 0x00, 0x00, 0x01,
+        LA1, LA2, LA3, LA6, LA7, LA8 + 1,
+        0xff, 0xff, 0x12, 0x34, 0x45, 0x56 };
+
+    puts("pktdump dumping Ethernet multicast packet with payload 12 34 45 56");
+    _test_trigger_recv(&ethernet_netif, data, sizeof(data));
+}
+
 static Test *embunit_tests_gnrc_netif(void)
 {
     EMB_UNIT_TESTFIXTURES(fixtures) {
@@ -1840,6 +1860,8 @@ int main(void)
     test_netapi_recv__raw_ethernet_payload();
     test_netapi_recv__raw_ieee802154_payload();
     test_netapi_recv__ipv6_ethernet_payload();
+    test_netapi_recv__broadcast_ethernet_payload();
+    test_netapi_recv__multicast_ethernet_payload();
     return 0;
 }
 
