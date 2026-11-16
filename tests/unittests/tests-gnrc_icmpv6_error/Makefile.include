@@ -1,0 +1,3 @@
+USEMODULE += gnrc_icmpv6_error
+USEMODULE += gnrc_ipv6
+USEMODULE += gnrc_netapi_callbacks
