@@ -142,6 +142,8 @@ extern "C" {
  * @ref drivers_socket_zep on native, where every frame and its ACK go through a
  * dispatcher over UDP: an ACK that arrives late makes the SubMAC retransmit the
  * frame and, after the last retry, report the transmission as failed.
+ *
+ * The SubMAC keeps the timeout in 16 bits: the value must not exceed 65535.
  */
 #ifndef CONFIG_IEEE802154_SUBMAC_ACK_TIMEOUT_US
 #define CONFIG_IEEE802154_SUBMAC_ACK_TIMEOUT_US     (864U)
