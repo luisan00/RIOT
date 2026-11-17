@@ -29,6 +29,7 @@
 #include "net/gnrc.h"
 #include "net/gnrc/ipv6/nib.h"
 #include "net/netdev_test.h"
+#include "net/protnum.h"
 #include "od.h"
 #include "sched.h"
 #include "shell.h"
@@ -62,25 +63,32 @@
 /* prefix of the source of L2_PAYLOAD */
 #define SRC_PFX             { 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0xef, 0x01, }
 #define SRC_PFX_LEN         (64U)
+/* an address of the node, for the packet that encapsulates L2_PAYLOAD */
+#define DECAP_DST           { 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0xef, 0x03, \
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, }
 
 static const uint8_t _nbr_mac[] = NBR_MAC;
 static const ipv6_addr_t _nbr_link_local = { .u8 = NBR_LINK_LOCAL };
 static const ipv6_addr_t _dst = { .u8 = DST };
 static const ipv6_addr_t _no_route_dst = { .u8 = NO_ROUTE_DST };
 static const ipv6_addr_t _src_pfx = { .u8 = SRC_PFX };
+static const ipv6_addr_t _decap_dst = { .u8 = DECAP_DST };
 static const uint8_t _l2_payload[] = L2_PAYLOAD;
 static gnrc_netreg_entry_t _dumper;
 static msg_t _dumper_queue[DUMPER_QUEUE_SIZE];
 static char _dumper_stack[THREAD_STACKSIZE_MAIN];
 /* destination unreachable messages handed to IPv6 for sending */
 static volatile unsigned _dst_unr_sent;
+static volatile unsigned _frames_forwarded;
 
 static int _run_test(int argc, char **argv);
 static int _run_rrq_test(int argc, char **argv);
+static int _run_decap_test(int argc, char **argv);
 
 static const shell_command_t shell_commands[] = {
     { "run_test", "runs the regression test", _run_test },
     { "run_rrq_test", "runs the reactive routing query test", _run_rrq_test },
+    { "run_decap_test", "runs the decapsulation test", _run_decap_test },
     { NULL, NULL, NULL }
 };
 
@@ -134,6 +142,10 @@ static int _dump_etherframe(netdev_t *dev, const iolist_t *iolist)
 
     puts("Forwarded Ethernet frame:");
     od_hex_dump(outbuf, outbuf_len, OD_WIDTH_DEFAULT);
+    /* frames to the neighbor; not the router solicitations of the node */
+    if (memcmp(outbuf, _nbr_mac, sizeof(_nbr_mac)) == 0) {
+        _frames_forwarded++;
+    }
     return outbuf_len;
 }
 
@@ -213,6 +225,46 @@ static int _run_rrq_test(int argc, char **argv)
 
     gnrc_netreg_unregister(GNRC_NETTYPE_IPV6, &_dst_unr_counter);
     gnrc_ipv6_nib_ft_del(&_src_pfx, SRC_PFX_LEN);
+    return 0;
+}
+
+/* L2_PAYLOAD encapsulated in an IPv6 packet for this node (RFC 2473): the
+ * node must forward the encapsulated packet, once, and not the packet around
+ * it */
+static int _run_decap_test(int argc, char **argv)
+{
+    gnrc_pktsnip_t *netif, *pkt;
+    ipv6_hdr_t *outer;
+
+    (void)argc;
+    (void)argv;
+    /* the dumper thread would get a copy of each received packet */
+    gnrc_netreg_unregister(GNRC_NETTYPE_IPV6, &_dumper);
+    expect(gnrc_netif_ipv6_addr_add(_mock_netif, &_decap_dst, 128,
+                                    GNRC_NETIF_IPV6_ADDRS_FLAGS_STATE_VALID) >= 0);
+    netif = gnrc_netif_hdr_build(NULL, 0, NULL, 0);
+    expect(netif);
+    gnrc_netif_hdr_set_netif(netif->data, _mock_netif);
+    pkt = gnrc_pktbuf_add(netif, NULL, sizeof(ipv6_hdr_t) + sizeof(_l2_payload),
+                          GNRC_NETTYPE_IPV6);
+    expect(pkt);
+    outer = pkt->data;
+    memset(outer, 0, sizeof(*outer));
+    ipv6_hdr_set_version(outer);
+    outer->len = byteorder_htons(sizeof(_l2_payload));
+    outer->nh = PROTNUM_IPV6;
+    outer->hl = 64;
+    outer->src = _nbr_link_local;
+    outer->dst = _decap_dst;
+    memcpy(outer + 1, _l2_payload, sizeof(_l2_payload));
+
+    _frames_forwarded = 0;
+    gnrc_netapi_dispatch_receive(GNRC_NETTYPE_IPV6, GNRC_NETREG_DEMUX_CTX_ALL,
+                                 pkt);
+    /* give IPv6 time to handle the packet */
+    xtimer_usleep(100 * US_PER_MS);
+    printf("Frames forwarded after decapsulation: %u\n", _frames_forwarded);
+    gnrc_netif_ipv6_addr_remove(_mock_netif, &_decap_dst);
     return 0;
 }
 

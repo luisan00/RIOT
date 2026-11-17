@@ -1023,10 +1023,12 @@ static void _receive(gnrc_pktsnip_t *pkt)
         else if (--(hdr->hl) > 0) {  /* drop packets that *reach* Hop Limit 0 */
             DEBUG("ipv6: forward packet to next hop\n");
 
-            /* remove L2 headers around IPV6 */
-            if (netif_hdr != NULL) {
-                gnrc_pktbuf_remove_snip(pkt, netif_hdr);
-            }
+            /* Remove the headers around IPV6: the L2 header and, if the
+             * packet was encapsulated in an IPv6 packet to this node (see
+             * _demux()), the headers of that packet. Otherwise, these would
+             * be sent again, to this node. */
+            gnrc_pktbuf_release(ipv6->next);
+            ipv6->next = NULL;
             pkt = gnrc_pktbuf_reverse_snips(pkt);
             if (pkt != NULL) {
                 _send(pkt, false);
