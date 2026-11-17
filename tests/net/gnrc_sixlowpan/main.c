@@ -17,12 +17,18 @@
  * @}
  */
 
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "fmt.h"
+#include "iolist.h"
 #include "msg.h"
 #include "od.h"
+#include "net/ieee802154.h"
 #include "net/ipv6/addr.h"
+#include "net/ipv6/hdr.h"
 #include "net/gnrc/pkt.h"
 #include "net/gnrc/pktbuf.h"
 #include "net/gnrc/netreg.h"
@@ -31,15 +37,18 @@
 #include "net/gnrc/netif/conf.h"
 #include "net/gnrc/netif/ieee802154.h"
 #include "net/gnrc/netif/hdr.h"
+#include "net/gnrc/ipv6/hdr.h"
 #include "net/gnrc/pktdump.h"
 #include "net/gnrc/sixlowpan/ctx.h"
 #include "net/netdev_test.h"
+#include "net/protnum.h"
 #include "shell.h"
 #include "test_utils/expect.h"
 #include "ztimer.h"
 
 #define IPV6_COUNT_RESET           (0x4480)
 #define IPV6_COUNT_COUNT_UP        (0x4481)
+#define SENT_6LO_FRAME             (0x4482)
 
 #define IEEE802154_MAX_FRAG_SIZE    (102)
 #define IEEE802154_LOCAL_EUI64     { \
@@ -54,6 +63,7 @@ static char _netif_stack[THREAD_STACKSIZE_DEFAULT];
 static char _ipv6_count_stack[THREAD_STACKSIZE_DEFAULT];
 static netdev_test_t _ieee802154_dev;
 static const uint8_t _ieee802154_local_eui64[] = IEEE802154_LOCAL_EUI64;
+static const uint8_t _ieee802154_remote_eui64[] = IEEE802154_REMOTE_EUI64;
 static kernel_pid_t main_pid, ipv6_count_pid;
 
 static void *_ipv6_count_thread(void *arg)
@@ -130,9 +140,12 @@ static int _get_netdev_addr_long(netdev_t *netdev, void *value, size_t max_len)
     return sizeof(_ieee802154_local_eui64);
 }
 
+static int _netdev_send(netdev_t *netdev, const iolist_t *iolist);
+
 static void _init_interface(void)
 {
     netdev_test_setup(&_ieee802154_dev, NULL);
+    netdev_test_set_send_cb(&_ieee802154_dev, _netdev_send);
     netdev_test_set_get_cb(&_ieee802154_dev, NETOPT_DEVICE_TYPE,
                            _get_netdev_device_type);
     netdev_test_set_get_cb(&_ieee802154_dev, NETOPT_PROTO,
@@ -375,9 +388,136 @@ static int _inject_6lo(int argc, char **argv)
     return 0;
 }
 
+static volatile bool _capture;
+
+/* Keeps the next unicast frame the interface sends, without its MAC header,
+ * so that the inject command can feed it back in. Frames to the broadcast
+ * address are left out: the host also sends router solicitations */
+static int _netdev_send(netdev_t *netdev, const iolist_t *iolist)
+{
+    int size = 0;
+
+    (void)netdev;
+    for (const iolist_t *ptr = iolist; ptr != NULL; ptr = ptr->iol_next) {
+        size += ptr->iol_len;
+    }
+    if (_capture &&
+        (ieee802154_get_dst_len(iolist->iol_base) == IEEE802154_LONG_ADDRESS_LEN)) {
+        msg_t msg = { .type = SENT_6LO_FRAME };
+
+        _capture = false;
+        _data_len = 0;
+        for (const iolist_t *ptr = iolist->iol_next; ptr != NULL;
+             ptr = ptr->iol_next) {
+            if (((size_t)_data_len + ptr->iol_len) > sizeof(_data_buf)) {
+                _data_len = 0;
+                return -ENOBUFS;
+            }
+            memcpy(&_data_buf[_data_len], ptr->iol_base, ptr->iol_len);
+            _data_len += ptr->iol_len;
+        }
+        msg_send(&msg, main_pid);
+    }
+    return size;
+}
+
+/* Sends a UDP packet encapsulated in IPv6 (RFC 2473) through 6LoWPAN, with
+ * the inner IPv6 header in its own snip, or with "merged", in one snip with
+ * its payload, and prints the 6LoWPAN frame. No address can be elided: there
+ * is no context for 2001:db8::/64 */
+static int _send_ipv6_in_ipv6(int argc, char **argv)
+{
+    static const ipv6_addr_t outer_src = {
+        .u8 = { 0x20, 0x01, 0x0d, 0xb8, [15] = 0x0a }
+    };
+    static const ipv6_addr_t outer_dst = {
+        .u8 = { 0x20, 0x01, 0x0d, 0xb8, [15] = 0x0b }
+    };
+    static const ipv6_addr_t inner_src = {
+        .u8 = { 0x20, 0x01, 0x0d, 0xb8, [15] = 0x01 }
+    };
+    static const ipv6_addr_t inner_dst = {
+        .u8 = { 0x20, 0x01, 0x0d, 0xb8, [15] = 0x02 }
+    };
+    static const uint8_t udp[] = {
+        0xf0, 0xb0,             /* source port: 61616 */
+        0xf0, 0xb1,             /* destination port: 61617 */
+        0x00, 0x0c,             /* length: 12 */
+        0x12, 0x34,             /* checksum, carried in-line as it is */
+        0xde, 0xad, 0xbe, 0xef, /* payload */
+    };
+    bool merged = (argc > 1) && (strcmp(argv[1], "merged") == 0);
+    gnrc_pktsnip_t *pkt, *netif;
+    ipv6_hdr_t *hdr;
+    msg_t msg = { 0 };
+
+    if ((argc > 2) || ((argc == 2) && !merged)) {
+        printf("usage: %s [merged]\n", argv[0]);
+        return 1;
+    }
+    pkt = gnrc_pktbuf_add(NULL, udp, sizeof(udp), GNRC_NETTYPE_UDP);
+    if (pkt == NULL) {
+        puts("error: packet buffer full");
+        return 1;
+    }
+    pkt = gnrc_ipv6_hdr_build(pkt, &inner_src, &inner_dst);
+    if (pkt == NULL) {
+        puts("error: packet buffer full");
+        return 1;
+    }
+    hdr = pkt->data;
+    hdr->len = byteorder_htons(sizeof(udp));
+    hdr->nh = PROTNUM_UDP;
+    hdr->hl = 64;
+    if (merged && (gnrc_pktbuf_merge(pkt) != 0)) {
+        puts("error: unable to merge the encapsulated packet");
+        gnrc_pktbuf_release(pkt);
+        return 1;
+    }
+    pkt = gnrc_ipv6_hdr_build(pkt, &outer_src, &outer_dst);
+    if (pkt == NULL) {
+        puts("error: packet buffer full");
+        return 1;
+    }
+    hdr = pkt->data;
+    hdr->len = byteorder_htons(gnrc_pkt_len(pkt->next));
+    hdr->nh = PROTNUM_IPV6;
+    hdr->hl = 64;
+    netif = gnrc_netif_hdr_build(NULL, 0, _ieee802154_remote_eui64,
+                                 sizeof(_ieee802154_remote_eui64));
+    if (netif == NULL) {
+        puts("error: packet buffer full");
+        gnrc_pktbuf_release(pkt);
+        return 1;
+    }
+    gnrc_netif_hdr_set_netif(netif->data, &_netif);
+    pkt = gnrc_pkt_prepend(pkt, netif);
+
+    _capture = true;
+    if (gnrc_netapi_dispatch_send(GNRC_NETTYPE_SIXLOWPAN,
+                                  GNRC_NETREG_DEMUX_CTX_ALL, pkt) == 0) {
+        puts("error: no 6LoWPAN thread");
+        _capture = false;
+        gnrc_pktbuf_release(pkt);
+        return 1;
+    }
+    while (ztimer_msg_receive_timeout(ZTIMER_MSEC, &msg, 100U) != -ETIME) {
+        if (msg.type == SENT_6LO_FRAME) {
+            puts("Sent 6LoWPAN frame:");
+            od_hex_dump(_data_buf, _data_len, OD_WIDTH_DEFAULT);
+            return 0;
+        }
+    }
+    _capture = false;
+    puts("No 6LoWPAN frame sent");
+    return 1;
+}
+
 SHELL_COMMAND(preload, "Preload 6LoWPAN packet", _preload_6lo);
 SHELL_COMMAND(inject, "Inject 6LoWPAN packet", _inject_6lo);
 SHELL_COMMAND(send_fragments, "Test fragmentation with IPHC", _send_packet);
+SHELL_COMMAND(send_ipv6_in_ipv6, "Send IPv6-in-IPv6 packet through 6LoWPAN",
+              _send_ipv6_in_ipv6);
 
 int main(void)
 {

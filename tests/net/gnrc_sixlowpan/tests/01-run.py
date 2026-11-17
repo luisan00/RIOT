@@ -1852,6 +1852,40 @@ def testfunc(child):
                 )
                 raise
 
+    # Encapsulated IPv6 header (RFC 6282, section 4.2), compressed and
+    # decompressed again
+    # ===================================================================
+    for layout in ("", " merged"):
+        name = f"send_ipv6_in_ipv6{layout}"
+        print(f"\033[1;34m=== Testing {name} ===\033[00m")
+        child.sendline(name)
+        for line in [
+            "Sent 6LoWPAN frame:",
+            # IPHC: TF elided, NH compressed, HLIM 64; addresses in-line
+            "00000000  7E  00  20  01  0D  B8  00  00  00  00  00  00  00  00  00  00",
+            # IPv6 header dispatch: EID 7, NH bit zero; IPHC of the inner header
+            "00000010  00  0A  20  01  0D  B8  00  00  00  00  00  00  00  00  00  00",
+            "00000020  00  0B  EE  7E  00  20  01  0D  B8  00  00  00  00  00  00  00",
+            "00000030  00  00  00  00  01  20  01  0D  B8  00  00  00  00  00  00  00",
+            # UDP NHC with 4-bit ports and in-line checksum, and the payload
+            "00000040  00  00  00  00  02  F3  01  12  34  DE  AD  BE  EF",
+        ]:
+            child.expect_exact(line)
+        child.sendline("inject")
+        for line in [
+            "~~ SNIP  0 - size:  92 byte, type: NETTYPE_IPV6 (2)",
+            "length: 52  next header: 41  hop limit: 64",
+            "source address: 2001:db8::a",
+            "destination address: 2001:db8::b",
+            # the encapsulated header, with its payload length restored
+            "00000000  60  00  00  00  00  0C  11  40  20  01  0D  B8  00  00  00  00",
+            "00000010  00  00  00  00  00  00  00  01  20  01  0D  B8  00  00  00  00",
+            "00000020  00  00  00  00  00  00  00  02  F0  B0  F0  B1  00  0C  12  34",
+            "00000030  DE  AD  BE  EF",
+            "IPv6 packets received in app: 1",
+        ]:
+            child.expect_exact(line)
+
     if not pktbuf_malloc:
         child.sendline("pktbuf")
         child.expect(

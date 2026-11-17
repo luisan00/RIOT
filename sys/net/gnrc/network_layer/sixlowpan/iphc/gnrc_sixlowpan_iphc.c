@@ -1780,16 +1780,15 @@ static ssize_t _nhc_ipv6_encode_snip(gnrc_pktsnip_t *pkt,
 
     assert(hdr->size >= sizeof(ipv6_hdr_t));
     /* Set IPv6 extension compression header type
-     * (see https://tools.ietf.org/html/rfc6282#section-4.2). */
-    nhc_data[0] = NHC_IPV6_EXT_ID;
-    if (_compressible_nh(new_nh)) {
-        nhc_data[0] |= NHC_IPV6_EXT_NH;
-    }
-    else {
-        nhc_data[nhc_len++] = new_nh;
-    }
-    /* save to cast as result is max 40 */
-    tmp = (ssize_t)_iphc_ipv6_encode(hdr, netif_hdr, iface, &nhc_data[nhc_len]);
+     * (see https://tools.ietf.org/html/rfc6282#section-4.2). For an IPv6
+     * header (EID=7) the NH bit is unused and MUST be set to zero, and the
+     * following bytes are the LOWPAN_IPHC encoding of that header, which
+     * carries its next header itself. */
+    nhc_data[0] = NHC_IPV6_EXT_ID | NHC_IPV6_EXT_EID_IPV6;
+    /* _iphc_ipv6_encode() takes the snip in front of the header to encode;
+     * save to cast as result is max 40 */
+    tmp = (ssize_t)_iphc_ipv6_encode(pkt->next, netif_hdr, iface,
+                                     &nhc_data[nhc_len]);
     if (tmp == 0) {
         DEBUG("6lo iphc: error encoding IPv6 header\n");
         return -1;
