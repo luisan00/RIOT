@@ -16,6 +16,7 @@
 #include "net/gnrc/ipv6/nib.h"
 #endif  /* MODULE_GNRC_IPV6_NIB */
 #include "net/gnrc/netif.h"
+#include "net/gnrc/netif/internal.h"
 #include "xtimer.h"
 
 #include "net/gnrc/sixlowpan/frag/fb.h"
@@ -136,14 +137,24 @@ gnrc_sixlowpan_frag_vrb_t *gnrc_sixlowpan_frag_vrb_from_route(
                 (gnrc_netif_get_by_ipv6_addr(addr) == NULL) &&
                 (gnrc_ipv6_nib_get_next_hop_l2addr(addr, netif, NULL,
                                                    &nce) == 0)) {
+                gnrc_netif_t *out_netif = gnrc_netif_get_by_pid(
+                        gnrc_ipv6_nib_nc_get_iface(&nce)
+                    );
 
                 DEBUG("6lo vrb: FIB entry for IPv6 destination %s found\n",
                       ipv6_addr_to_str(addr_str, addr, sizeof(addr_str)));
-                res = gnrc_sixlowpan_frag_vrb_add(
-                        base,
-                        gnrc_netif_get_by_pid(gnrc_ipv6_nib_nc_get_iface(&nce)),
-                        nce.l2addr, nce.l2addr_len
-                    );
+                /* Fragments can only be forwarded over another 6LoWPAN
+                 * interface. On a border router, the next hop may be behind
+                 * e.g. an Ethernet interface, so the datagram has to be
+                 * reassembled. */
+                if ((out_netif != NULL) && gnrc_netif_is_6lo(out_netif)) {
+                    res = gnrc_sixlowpan_frag_vrb_add(base, out_netif,
+                                                      nce.l2addr,
+                                                      nce.l2addr_len);
+                }
+                else {
+                    DEBUG("6lo vrb: next hop is not on a 6LoWPAN interface\n");
+                }
             }
             else {
                 DEBUG("6lo vrb: no FIB entry for IPv6 destination %s found\n",

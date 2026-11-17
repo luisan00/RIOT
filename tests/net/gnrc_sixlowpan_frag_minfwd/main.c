@@ -372,6 +372,27 @@ static void test_minfwd_vrbe_from_route__success__no_netif(void)
                         "_rem_l2 != vrbe->super.dst");
 }
 
+static void test_minfwd_vrbe_from_route__no_6lo_netif(void)
+{
+    gnrc_sixlowpan_frag_vrb_t *vrbe;
+    static gnrc_pktsnip_t *ipv6_snip;
+    static const ipv6_hdr_t ipv6_hdr = {
+            .dst = { .u8 = REM_GB }
+        };
+    const uint8_t device_type = _mock_netif->device_type;
+
+    TEST_ASSERT_EQUAL_INT(0, _set_route_and_nce(&ipv6_hdr.dst, REM_GB_PFX_LEN));
+    TEST_ASSERT_NOT_NULL((ipv6_snip = _create_ipv6_hdr(&ipv6_hdr)));
+    /* the next hop is behind an interface that can't take 6LoWPAN fragments,
+     * like the Ethernet uplink of a border router: no forwarding, the
+     * datagram needs to be reassembled */
+    _mock_netif->device_type = NETDEV_TYPE_ETHERNET;
+    vrbe = gnrc_sixlowpan_frag_vrb_from_route(&_vrbe_base, NULL, ipv6_snip);
+    _mock_netif->device_type = device_type;
+    gnrc_pktbuf_release(ipv6_snip);
+    TEST_ASSERT_NULL(vrbe);
+}
+
 static void test_minfwd_vrbe_from_route__no_route1(void)
 {
     static gnrc_pktsnip_t *ipv6_snip;
@@ -1467,6 +1488,7 @@ static Test *tests_gnrc_sixlowpan_frag_minfwd_api(void)
     EMB_UNIT_TESTFIXTURES(fixtures) {
         new_TestFixture(test_minfwd_vrbe_from_route__success__given_netif),
         new_TestFixture(test_minfwd_vrbe_from_route__success__no_netif),
+        new_TestFixture(test_minfwd_vrbe_from_route__no_6lo_netif),
         new_TestFixture(test_minfwd_vrbe_from_route__no_route1),
         new_TestFixture(test_minfwd_vrbe_from_route__no_route2),
         new_TestFixture(test_minfwd_vrbe_from_route__local_addr),
