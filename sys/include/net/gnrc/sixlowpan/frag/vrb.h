@@ -97,8 +97,9 @@ gnrc_sixlowpan_frag_vrb_t *gnrc_sixlowpan_frag_vrb_add(
  * @return  The VRB entry pointing to the next hop based on the forwarding
  *          information provided in @p hdr and present in the respective
  *          forwarding information base for `hdr->type`.
- * @return  NULL, if VRB is full or if there is no route to destination in
- *          @p hdr.
+ * @return  NULL, if VRB is full, if there is no route to destination in
+ *          @p hdr, or if the next hop is not on a 6LoWPAN interface. In the
+ *          last case, the datagram needs to be reassembled.
  */
 gnrc_sixlowpan_frag_vrb_t *gnrc_sixlowpan_frag_vrb_from_route(
             const gnrc_sixlowpan_frag_rb_base_t *base,
