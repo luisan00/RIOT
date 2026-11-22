@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2020 Locha Inc
+ * SPDX-FileCopyrightText: 2026 luisan00
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
@@ -13,6 +14,7 @@
  * @brief           CC26xx/CC13xx Power management
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
+ * @author          Luis A. Ruiz <luisan00@hotmail.com>
  */
 
 #include <cc26xx_cc13xx.h>
@@ -53,6 +55,16 @@ bool power_is_domain_enabled(const power_domain_t domain);
 void power_enable_domain(const power_domain_t domain);
 
 /**
+ * @brief   Disable the specified power domain and wait until it is off.
+ *
+ * Only @ref POWER_DOMAIN_PERIPHERALS, @ref POWER_DOMAIN_SERIAL and
+ * @ref POWER_DOMAIN_RFC can be disabled. Other domains are left untouched.
+ *
+ * @param[in] domain The domain.
+ */
+void power_disable_domain(const power_domain_t domain);
+
+/**
  * @brief   Enable GPIO clock
  */
 void power_clock_enable_gpio(void);
@@ -82,6 +94,16 @@ void power_clock_enable_uart(uart_t uart);
  * @param[in] uart The UART number
  */
 void power_clock_disable_uart(uart_t uart);
+
+/**
+ * @brief   Enable RF Core clock
+ */
+void power_clock_enable_rfc(void);
+
+/**
+ * @brief   Disable RF Core clock
+ */
+void power_clock_disable_rfc(void);
 
 #ifdef __cplusplus
 } /* end extern "C" */
