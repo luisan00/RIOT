@@ -34,6 +34,26 @@ The board comes in two variants with different RF matching network on the 20 dBm
 - LAUNCHXL-CC1352P1: 868/915 MHz up to 20 dBm, 2.4 GHz up to 5 dBm
 - LAUNCHXL-CC1352P-2: 868/915 MHz up to 14 dBm, 2.4 GHz up to 20 dBm.
 
+## Radio
+
+The sub-GHz radio is supported by the @ref cpu_cc26x2_cc13x2_rf driver, which
+implements the MR-FSK PHY of IEEE 802.15.4g. Applications that use
+`netdev_default` get a network interface for it.
+
+The default frequency band is 863 MHz (Europe). The other bands, the channel
+spacing and the operating modes are described in the documentation of the
+driver.
+
+The driver uses the sub-GHz path of the on-board RF switch with the standard
+PA (up to 14 dBm). The 20 dBm PA, which on the LAUNCHXL-CC1352P1 is also for
+the 868/915 MHz band, and the 2.4 GHz band are not supported yet.
+
+The 48 MHz crystal of the LAUNCHXL-CC1352P1 needs a cap-array trim that is
+stored in the CCFG. RIOT only writes the CCFG when it is built with
+`CFLAGS=-DCONFIG_CC26XX_CC13XX_UPDATE_CCFG=1`, so flash such a build once.
+Without the trim the carrier frequency is off, and the board may not be heard
+by radios that are on frequency.
+
 ## Board pinout
 
 The [LAUNCHXL-CC1352P1 Quick Start Guide](https://www.ti.com/lit/ug/swau108a/swau108a.pdf)
