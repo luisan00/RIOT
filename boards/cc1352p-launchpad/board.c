@@ -34,7 +34,9 @@
  *   0   |   1   |   0   | sub-GHz, 20 dBm PA, TX only
  *   1   |   0   |   0   | 2.4 GHz
  *
- * The radio driver only uses the first one for now, in TX and RX.
+ * The radio driver uses the first one, in TX and RX. With the 20 dBm PA it
+ * uses the second one in TX and the first one in RX; the RF Core then moves
+ * the switch itself, see board_rf_switch_subghz().
  *
  * Checked against the SimpleLink CC13xx/CC26xx SDK 8.33.00.16:
  *
@@ -48,6 +50,12 @@
  *   in TX, DIO30 high in RX) and `target_launchxl-cc1352p_2_4_ghz.json` for
  *   2.4 GHz (DIO28 high). In idle TI leaves the three pins as tristate
  *   inputs; here they stay driven.
+ * - `source/ti/drivers/.meta/rf/RF.Board.c.xdt`, the antenna switching
+ *   callback TI generates for this switch: with the 20 dBm PA in the sub-GHz
+ *   band it routes two signals of the RF Core to the pins, RFC_GPO3 to DIO29
+ *   and RFC_GPO0 (LNA enable) to DIO30, and keeps DIO28 low. RFC_GPO3 is used
+ *   instead of RFC_GPO1 (PA enable) because, in TI's words, the latter "is
+ *   sometimes not de-asserted on CC1352 Rev A".
  *
  * @{
  */
@@ -56,18 +64,27 @@
 #define BOARD_RF_SWITCH_SUBGHZ  GPIO_PIN(0, 30)
 /** @} */
 
-void board_rf_switch_enable_subghz(void)
+void board_rf_switch_subghz(bool pa20)
 {
     gpio_clear(BOARD_RF_SWITCH_24G);
-    gpio_clear(BOARD_RF_SWITCH_PA);
-    gpio_set(BOARD_RF_SWITCH_SUBGHZ);
+
+    if (pa20 && BOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ) {
+        /* the RF Core drives both pins: the output is enabled by the IOC
+         * port function, as for any other peripheral output */
+        IOC->CFG[BOARD_RF_SWITCH_PA] = IOCFG_PORTID_RFC_GPO3;
+        IOC->CFG[BOARD_RF_SWITCH_SUBGHZ] = IOCFG_PORTID_RFC_GPO0;
+    }
+    else {
+        gpio_init(BOARD_RF_SWITCH_PA, GPIO_OUT);
+        gpio_init(BOARD_RF_SWITCH_SUBGHZ, GPIO_OUT);
+        gpio_clear(BOARD_RF_SWITCH_PA);
+        gpio_set(BOARD_RF_SWITCH_SUBGHZ);
+    }
 }
 
 void board_init(void)
 {
     gpio_init(BOARD_RF_SWITCH_24G, GPIO_OUT);
-    gpio_init(BOARD_RF_SWITCH_PA, GPIO_OUT);
-    gpio_init(BOARD_RF_SWITCH_SUBGHZ, GPIO_OUT);
 
-    board_rf_switch_enable_subghz();
+    board_rf_switch_subghz(false);
 }

@@ -65,6 +65,36 @@ static cc26x2_cc13x2_rf_pa_t cc26x2_cc13x2_rf_patable[] =
 #define CC26X2_CC13X2_PA_TABLE_NUMOF ARRAY_SIZE(cc26x2_cc13x2_rf_patable)
 /** @} */
 
+#if BOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ || defined(DOXYGEN)
+/**
+ * @name   Table of the 20 dBm PA for the sub-GHz band
+ *
+ * Only on the LAUNCHXL-CC1352P1, whose 20 dBm PA is matched for 770 to
+ * 930 MHz. The values are TI's for the RF design `LAUNCHXL-CC1352P1_20dBm`
+ * (SimpleLink SDK 8.33.00.16,
+ * `radioconfig/.meta/config/pa_tables/cc13x2_cc26x2_r3/pasettings.json`).
+ * @{
+ */
+/**
+ * @brief   PA table of the 20 dBm PA: TX power in dBm and its setting
+ */
+static const cc26x2_cc13x2_rf_pa20_t cc26x2_cc13x2_rf_pa20_table[] =
+{
+    { .dbm = 20, .val = 0x1B8ED2 },
+    { .dbm = 19, .val = 0x0448CF },
+    { .dbm = 18, .val = 0x048022 },
+    { .dbm = 17, .val = 0x02661C },
+    { .dbm = 16, .val = 0x005618 },
+    { .dbm = 15, .val = 0x004812 },
+    { .dbm = 14, .val = 0x00380D },
+};
+/**
+ * @brief   Number of entries of the table of the 20 dBm PA
+ */
+#define CC26X2_CC13X2_PA20_TABLE_NUMOF ARRAY_SIZE(cc26x2_cc13x2_rf_pa20_table)
+/** @} */
+#endif
+
 /**
  * @brief   PA ramp time of the 200 kbit/s, modulation index 0.5 MR-FSK mode
  *

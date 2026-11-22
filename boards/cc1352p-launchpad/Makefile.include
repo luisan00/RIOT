@@ -1,9 +1,16 @@
 XDEBUGGER = XDS110
 
+# tell the code which variant of the LaunchPad this is, see Makefile.features
+ifeq (cc1352p1,$(BOARD_VERSION))
+  CFLAGS += -DBOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ=1
+else
+  CFLAGS += -DBOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ=0
+endif
+
 # The 48 MHz crystal of this LaunchPad needs a smaller load than the factory
 # trim of the MCU gives. TI corrects it in the CCFG of its board support with
-# a cap-array delta (SimpleLink SDK, lprf_ccfg_settings.js,
-# CC1352P1_LAUNCHXL: xoscCapArray = true, xoscCapArrayDelta = 0xC1). Without
+# a cap-array delta (SimpleLink SDK, lprf_ccfg_settings.js, CC1352P1_LAUNCHXL
+# and CC1352P_2_LAUNCHXL: xoscCapArray = true, xoscCapArrayDelta = 0xC1). Without
 # it the RF frequency is off by more than the receive filter of the sub-GHz
 # PHY tolerates.
 # These values only reach the board when the CCFG is part of the image, i.e.

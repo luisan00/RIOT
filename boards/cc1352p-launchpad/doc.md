@@ -45,8 +45,19 @@ spacing and the operating modes are described in the documentation of the
 driver.
 
 The driver uses the sub-GHz path of the on-board RF switch with the standard
-PA (up to 14 dBm). The 20 dBm PA, which on the LAUNCHXL-CC1352P1 is also for
-the 868/915 MHz band, and the 2.4 GHz band are not supported yet.
+PA (up to 14 dBm). The 2.4 GHz band is not supported yet.
+
+The two variants of the board differ in their 20 dBm PA, so the build has to
+know which one it is for. `BOARD_VERSION` selects it, `cc1352p1` (the default)
+or `cc1352p-2`:
+
+    BOARD=cc1352p-launchpad BOARD_VERSION=cc1352p-2 make ...
+
+On the LAUNCHXL-CC1352P1 the 20 dBm PA is for the 868/915 MHz band. The
+driver uses it for TX powers above 14 dBm when it is built with
+`CFLAGS=-DCONFIG_CC26X2_CC13X2_RF_PA20=1`; the RF Core then moves the RF
+switch itself between that PA in TX and the sub-GHz path in RX. This is off
+by default, as only some channels of some bands allow such powers.
 
 The 48 MHz crystal of the LAUNCHXL-CC1352P1 needs a cap-array trim that is
 stored in the CCFG. RIOT only writes the CCFG when it is built with
