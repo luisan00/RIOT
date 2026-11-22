@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2020 Locha Inc
+ * SPDX-FileCopyrightText: 2026 luisan00
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
@@ -56,6 +57,16 @@ extern "C" {
 #define LED1_OFF            gpio_clear(LED1_PIN)
 #define LED1_TOGGLE         gpio_toggle(LED1_PIN)
 /** @} */
+
+/**
+ * @brief   Select the standard-power sub-GHz path on the on-board RF switch
+ */
+void board_rf_switch_enable_subghz(void);
+
+/**
+ * @brief   Board hook of the radio driver, called when the radio is set up
+ */
+#define CC26X2_CC13X2_RF_INTERNAL_SETUP() board_rf_switch_enable_subghz()
 
 #ifdef __cplusplus
 }

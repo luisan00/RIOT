@@ -1,4 +1,15 @@
 XDEBUGGER = XDS110
 
+# The 48 MHz crystal of this LaunchPad needs a smaller load than the factory
+# trim of the MCU gives. TI corrects it in the CCFG of its board support with
+# a cap-array delta (SimpleLink SDK, lprf_ccfg_settings.js,
+# CC1352P1_LAUNCHXL: xoscCapArray = true, xoscCapArrayDelta = 0xC1). Without
+# it the RF frequency is off by more than the receive filter of the sub-GHz
+# PHY tolerates.
+# These values only reach the board when the CCFG is part of the image, i.e.
+# with CONFIG_CC26XX_CC13XX_UPDATE_CCFG.
+CFLAGS += -DSET_MODE_CONF_XOSC_CAP_MOD=0x0
+CFLAGS += -DSET_MODE_CONF_XOSC_CAPARRAY_DELTA=0xC1
+
 # configure the flash tool
 include $(RIOTBOARD)/common/cc26xx_cc13xx/Makefile.include
