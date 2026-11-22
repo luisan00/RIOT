@@ -7,6 +7,7 @@ DIRS = periph $(RIOTCPU)/cortexm_common $(RIOTCPU)/cc26xx_cc13xx
 ifneq (,$(filter cc26x2_cc13x2_rf,$(USEMODULE)))
   DIRS += radio
   DIRS += rfc
+  DIRS += vendor/rf_patches
 endif
 
 include $(RIOTBASE)/Makefile.base

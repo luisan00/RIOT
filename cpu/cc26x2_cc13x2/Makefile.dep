@@ -4,6 +4,7 @@ include ${RIOTCPU}/cc26xx_cc13xx/Makefile.dep
 
 ifneq (,$(filter cc26x2_cc13x2_rf,$(USEMODULE)))
   USEMODULE += cc26x2_cc13x2_rfc
+  USEMODULE += cc26x2_cc13x2_rf_patches
   ifneq (,$(filter netdev,$(USEMODULE)))
     USEMODULE += netdev_ieee802154_submac
     # The only PHY of the radio is MR-FSK. Without this module the SubMAC
