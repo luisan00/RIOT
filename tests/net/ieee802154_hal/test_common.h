@@ -29,7 +29,8 @@
                      IS_USED(MODULE_KW2XRF) + \
                      IS_USED(MODULE_KW41ZRF) + \
                      IS_USED(MODULE_AT86RF2XX) + \
-                     IS_USED(MODULE_ESP_IEEE802154)
+                     IS_USED(MODULE_ESP_IEEE802154) + \
+                     IS_USED(MODULE_CC26X2_CC13X2_RF)
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,6 +50,7 @@ typedef enum {
     IEEE802154_DEV_TYPE_AT86RF2XX,
     IEEE802154_DEV_TYPE_ESP_IEEE802154,
     IEEE802154_DEV_TYPE_KW41ZRF,
+    IEEE802154_DEV_TYPE_CC26X2_CC13X2_RF,
 } ieee802154_dev_type_t;
 
 typedef ieee802154_dev_t* (*ieee802154_dev_cb_t)(ieee802154_dev_type_t type,
