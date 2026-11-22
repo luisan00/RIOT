@@ -459,6 +459,8 @@ typedef struct {
     uint16_t deviation;                 /**< deviation, in steps of 250 Hz */
     uint32_t rate_word;                 /**< symbol rate word, prescaler 15 */
     uint8_t rx_bw;                      /**< receiver bandwidth setting */
+    uint16_t int_freq;                  /**< intermediate frequency in MHz, signed
+                                             4.12 fixed point, 0x8000: default */
     uint8_t preamble_len;               /**< preamble length in bytes */
     const uint32_t *overrides;          /**< mode specific overrides */
 } fsk_mode_t;
@@ -470,6 +472,10 @@ typedef struct {
  * - The deviation is `mod_idx * symbol rate / 2`. The symbol rate is
  *   `rate_word * 48 MHz / (15 * 2^21)` ([TRM] equation 15).
  * - The receiver bandwidth settings are listed in [TRM] Table 25-183.
+ * - Each setting has its own intermediate frequency (`intFreq`), from 225 to
+ *   600 kHz; only the IEEE 802.15.4 one of 50 kbit/s uses the default of the
+ *   radio. TX uses the same intermediate frequency if supported, otherwise 0
+ *   (driverlib rf_prop_cmd.h).
  * - Every mode uses #SYNC_WORD with 24 bits and the IEEE 802.15.4g whitener
  *   and CRC (`whitenMode` 7).
  *
@@ -481,42 +487,42 @@ static const fsk_mode_t _modes[] = {
     {   /* setting_tc120: 12.5 kHz deviation, 68 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_50K, .mod_idx = 32,
         .deviation = 50, .rate_word = 32768, .rx_bw = 80, .preamble_len = 4,
-        .overrides = _overrides_50k_h05,
+        .int_freq = 0x0399, .overrides = _overrides_50k_h05,
     },
     {   /* setting_tc106_154g: 25 kHz deviation, 100 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_50K, .mod_idx = 64,
         .deviation = 100, .rate_word = 32768, .rx_bw = 82, .preamble_len = 7,
-        .overrides = _overrides_50k_h1,
+        .int_freq = 0x8000, .overrides = _overrides_50k_h1,
     },
     {   /* setting_tc152_154g: 25 kHz deviation, 137 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_100K, .mod_idx = 32,
         .deviation = 100, .rate_word = 65536, .rx_bw = 84, .preamble_len = 7,
-        .overrides = _overrides_100k_h05,
+        .int_freq = 0x0599, .overrides = _overrides_100k_h05,
     },
     {   /* setting_tc137: 50 kHz deviation, 196 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_100K, .mod_idx = 64,
         .deviation = 200, .rate_word = 65536, .rx_bw = 86, .preamble_len = 4,
-        .overrides = _overrides_100k_h1,
+        .int_freq = 0x08CC, .overrides = _overrides_100k_h1,
     },
     {   /* setting_tc142: 37.5 kHz deviation, 273 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_150K, .mod_idx = 32,
         .deviation = 150, .rate_word = 98304, .rx_bw = 88, .preamble_len = 4,
-        .overrides = _overrides_150k_h05,
+        .int_freq = 0x08CC, .overrides = _overrides_150k_h05,
     },
     {   /* setting_tc146_154g: 50 kHz deviation, 311 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_200K, .mod_idx = 32,
         .deviation = 200, .rate_word = 131072, .rx_bw = 89, .preamble_len = 7,
-        .overrides = _overrides_200k_h05,
+        .int_freq = 0x0999, .overrides = _overrides_200k_h05,
     },
     {   /* setting_tc151: 100 kHz deviation, 273 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_200K, .mod_idx = 64,
         .deviation = 400, .rate_word = 131072, .rx_bw = 88, .preamble_len = 4,
-        .overrides = _overrides_200k_h1,
+        .int_freq = 0x0733, .overrides = _overrides_200k_h1,
     },
     {   /* setting_tc154: 75 kHz deviation, 285 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_300K, .mod_idx = 32,
         .deviation = 300, .rate_word = 196608, .rx_bw = 92, .preamble_len = 4,
-        .overrides = _overrides_300k_h05,
+        .int_freq = 0x0666, .overrides = _overrides_300k_h05,
     },
 };
 
@@ -581,14 +587,13 @@ rfc_cmd_sync_start_rat_t rf_cmd_sync_start_rat =
  *
  * The fields are described in [TRM] Table 25-175 and section 25.10.5.2:
  *
- * - The deviation, the symbol rate, the receiver bandwidth, the preamble
- *   length and the override list depend on the MR-FSK mode, see @ref _modes.
+ * - The deviation, the symbol rate, the receiver bandwidth, the intermediate
+ *   frequency, the preamble length and the override list depend on the
+ *   MR-FSK mode, see @ref _modes.
  * - `msb_first = 1` and `whiten_mode` 4 to 7 select the IEEE 802.15.4g mode
  *   ([TRM] 25.10.5.2.1). In mode 7 the radio CPU reads the PHR of each frame:
  *   bit 12 selects the 16-bit CRC instead of the 32-bit one and bit 11
  *   enables the whitening.
- * - `int_freq = 0x8000` selects the default intermediate frequency of the
- *   chosen bandwidth ([TRM] Table 25-183).
  * - `center_freq` and `lo_divider` depend on the frequency band, see
  *   #CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ.
  * - `front_end_mode = 0` and `bias_mode = 1`: differential RF port and
@@ -1043,6 +1048,7 @@ static void _load_mode(const fsk_mode_t *mode)
     rf_cmd_prop_radio_div_setup.modulation.deviation = mode->deviation;
     rf_cmd_prop_radio_div_setup.symbol_rate.rate_word = mode->rate_word;
     rf_cmd_prop_radio_div_setup.rx_bw = mode->rx_bw;
+    rf_cmd_prop_radio_div_setup.int_freq = mode->int_freq;
     rf_cmd_prop_radio_div_setup.pream_conf.pream_bytes = mode->preamble_len;
 
     _overrides[n++] = OVERRIDE_DCDCCTL5_REG;
