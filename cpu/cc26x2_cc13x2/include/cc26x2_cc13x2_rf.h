@@ -51,7 +51,6 @@
  * Not implemented:
  *
  * - CSMA-CA and retransmissions in the radio (the SubMAC does both)
- * - Switching the radio off: `off` returns `-ENOTSUP`
  * - LQI, which is reported as 0
  * - 4-FSK, FEC and mode switch
  * - The 2.4 GHz band of the CC1352

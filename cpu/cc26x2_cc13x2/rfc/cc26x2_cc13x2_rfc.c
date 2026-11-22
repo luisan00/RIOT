@@ -102,8 +102,7 @@ void cc26x2_cc13x2_rfc_request_on(void)
     power_enable_domain(POWER_DOMAIN_RFC);
 
     /* PRCM:RFCCLKG.CLK_EN resets to 1 ([TRM] Table 7-34) and [SDK] never
-     * writes it during power-up, so this only matters after
-     * power_clock_disable_rfc(). */
+     * writes it, so this only matters if something else cleared it. */
     power_clock_enable_rfc();
 
     /* The doorbell can be accessed from here on, before PWMCLKEN is written:
@@ -187,7 +186,13 @@ void cc26x2_cc13x2_rfc_finish_on(void (* cpe_patch_fn)(void))
 
     /* The CPE patch is applied after BOOT_DONE and before any command, as
      * RF_applyRfCorePatch(RF_PHY_BOOTUP_MODE) does in [SDK]. The proprietary
-     * PHYs used here need no MCE or RFE patch. */
+     * PHYs used here need no MCE or RFE patch.
+     *
+     * TI's patch functions copy the patch image only the first time they
+     * are called after a reset of the MCU, and set the patch table every
+     * time. The image is still there after a power cycle of the RF Core
+     * because it lives in the CPE ULL RAM, whose retention is on by default
+     * (PRCM:RAMRETEN.RFCULL, [TRM] Table 7-96). */
     if (cpe_patch_fn != NULL) {
         DEBUG("[cc26x2_cc13x2_rfc]: patching CPE\n");
         cpe_patch_fn();
@@ -199,6 +204,38 @@ void cc26x2_cc13x2_rfc_finish_on(void (* cpe_patch_fn)(void))
      * and does not depend on CTL.EN, so the RTC counter itself does not have
      * to run ([TRM] Table 16-3). The bit never has to be cleared again. */
     AON_RTC->CTL |= AON_RTC_CTL_RTC_UPD_EN;
+}
+
+/*
+ * RF Core power-down, after the radio commands that prepare it (see
+ * cc26x2_cc13x2_rf_off()). [SDK] does the same at the end of
+ * RF_corePowerDown() and in the power state machine after it:
+ *
+ * 1. Disable every CPE and hardware interrupt of the RF Core
+ *    (RFCCpeIntDisable(~0), RFCHwIntDisable(~0)). Their flags are lost with
+ *    the power domain anyway.
+ * 2. Stop every clock of the RF Core: RFCClockDisable() writes 0 to
+ *    RFC_PWR:PWMCLKEN.
+ * 3. Switch the power domain off (Power_releaseDependency() of the RF Core
+ *    domain). Both PDCTL0RFC and PDCTL1RFC are cleared, see
+ *    power_disable_domain().
+ * 4. Release the HF crystal oscillator: nothing else in RIOT asks for it on
+ *    this CPU, so the system goes back to the HF RC oscillator.
+ */
+void cc26x2_cc13x2_rfc_power_off(void)
+{
+    NVIC_DisableIRQ(RF_CPE0_IRQN);
+    NVIC_DisableIRQ(RF_CPE1_IRQN);
+
+    if (power_is_domain_enabled(POWER_DOMAIN_RFC)) {
+        RFC_DBELL_NONBUF->RFCPEIEN = 0;
+        RFC_DBELL_NONBUF->RFHWIEN = 0;
+        RFC_PWR_NONBUF->PWMCLKEN = 0;
+
+        power_disable_domain(POWER_DOMAIN_RFC);
+    }
+
+    osc_hf_source_switch(OSC_RCOSC_HF);
 }
 
 /**

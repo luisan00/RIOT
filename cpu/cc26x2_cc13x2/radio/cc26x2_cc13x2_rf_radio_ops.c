@@ -368,7 +368,18 @@ static int _len(ieee802154_dev_t *dev)
 static int _off(ieee802154_dev_t *dev)
 {
     (void)dev;
-    return -ENOTSUP;
+
+    /* nothing of the MAC timing or of a pending operation survives */
+    timer_stop(CC26X2_CC13X2_RF_TIMER);
+    _cfg.ifs = false;
+    _rx_enabled = false;
+    _cca_pending = false;
+    _tx_state = TX_STATE_IDLE;
+    _state = STATE_IDLE;
+
+    cc26x2_cc13x2_rf_off();
+
+    return 0;
 }
 
 static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)

@@ -144,9 +144,10 @@ static uint8_t _long_addr[IEEE802154_LONG_ADDRESS_LEN];
 static uint16_t _pan_id;
 
 enum {
-    STATE_RFC_POWER_ON,
-    STATE_RFC_SETUP,
-    STATE_FINISHED,
+    STATE_OFF,              /**< the RF Core is off */
+    STATE_RFC_POWER_ON,     /**< waiting for the boot of the RF Core */
+    STATE_RFC_SETUP,        /**< waiting for the setup command chain */
+    STATE_FINISHED,         /**< the radio is on */
 } _poweron_state;
 
 /**
@@ -547,7 +548,8 @@ static const fsk_mode_t *_mode = &_modes[MODE_DEFAULT];
  * - AON_RTC:CTL.RTC_UPD_EN must be 1 and the system must run from XOSC_HF,
  *   see cc26x2_cc13x2_rfc_finish_on().
  *
- * This driver never sends CMD_SYNC_STOP_RAT, so `rat0` is always 0.
+ * `rat0` is 0 the first time and afterwards the value CMD_SYNC_STOP_RAT
+ * returned when the radio was switched off, see cc26x2_cc13x2_rf_off().
  */
 rfc_cmd_sync_start_rat_t rf_cmd_sync_start_rat =
 {
@@ -931,6 +933,62 @@ rfc_cmd_clear_rx_t rf_cmd_clear_rx =
     .queue = NULL /* set by us */
 };
 
+/**
+ * @brief   CMD_SYNC_STOP_RAT ([TRM] 25.3.3.1.9), last command before the RF
+ *          Core is powered off
+ *
+ * Stops the radio timer at an RTC tick and returns in `rat0` the value the
+ * RAT would have had when the RTC was zero. Given to CMD_SYNC_START_RAT at
+ * the next power-up it keeps the time base of the RAT consistent
+ * ([TRM] 25.2.4.3). It needs AON_RTC:CTL.RTC_UPD_EN, set by
+ * cc26x2_cc13x2_rfc_finish_on().
+ */
+static rfc_cmd_sync_stop_rat_t _cmd_sync_stop_rat =
+{
+    .command_no = RFC_CMD_SYNC_STOP_RAT,
+    .status = RFC_IDLE,
+    .next_op = NULL,
+    .start_time = 0,
+    .start_trigger = {
+        .type = RFC_TRIG_NOW,
+        .ena_cmd = 0,
+        .trigger_no = 0,
+        .past_trig = 0,
+    },
+    .condition = {
+        .rule = RFC_COND_NEVER,
+        .skip_no = 0,
+    },
+    .__dummy0 = 0,
+    .rat0 = 0,
+};
+
+/**
+ * @brief   CMD_FS_POWERDOWN ([TRM] 25.3.3.1.4), chained with
+ *          #_cmd_sync_stop_rat
+ *
+ * Stops the synthesizer and switches the analog modules off. [TRM]: it "must
+ * always be run before the radio is powered down". [SDK] does it with direct
+ * register writes instead (RFCSynthPowerDown() in driverlib rfc.c).
+ */
+static rfc_cmd_fs_powerdown_t _cmd_fs_powerdown =
+{
+    .command_no = RFC_CMD_FS_POWERDOWN,
+    .status = RFC_IDLE,
+    .next_op = &_cmd_sync_stop_rat,
+    .start_time = 0,
+    .start_trigger = {
+        .type = RFC_TRIG_NOW,
+        .ena_cmd = 0,
+        .trigger_no = 0,
+        .past_trig = 0,
+    },
+    .condition = {
+        .rule = RFC_COND_ALWAYS,
+        .skip_no = 0,
+    },
+};
+
 /** Set TX power */
 rfc_cmd_set_tx_power_t rf_cmd_set_tx_power =
 {
@@ -1092,8 +1150,8 @@ void cc26x2_cc13x2_rf_internal_init(void)
 
     rf_cmd_sync_start_rat.next_op = &rf_cmd_prop_radio_div_setup;
     rf_cmd_sync_start_rat.condition.rule = RFC_COND_ALWAYS;
-    /* the RAT starts from 0: it is never stopped with CMD_SYNC_STOP_RAT,
-     * which would give the offset to resume from */
+    /* the RAT starts from 0 the first time, cc26x2_cc13x2_rf_off() stores
+     * the offset to resume from */
     rf_cmd_sync_start_rat.rat0 = 0;
 
     memset(_short_addr, 0, IEEE802154_SHORT_ADDRESS_LEN);
@@ -1168,10 +1226,53 @@ int cc26x2_cc13x2_rf_confirm_on(void)
             break;
 
         default:
-            assert(0);
+            /* off: cc26x2_cc13x2_rf_request_on() was not called */
+            return -EIO;
     }
 
     return 0;
+}
+
+/*
+ * Switches the radio off. Mode, channel and TX power stay in the command
+ * structures, so the next cc26x2_cc13x2_rf_request_on() brings the radio
+ * back as it was.
+ *
+ * 1. End the receive command, if it runs.
+ * 2. CMD_FS_POWERDOWN, then CMD_SYNC_STOP_RAT, see their structures. The
+ *    returned `rat0` is stored for the next CMD_SYNC_START_RAT.
+ * 3. Power the RF Core off, see cc26x2_cc13x2_rfc_power_off().
+ *
+ * If the two commands fail the RF Core is powered off all the same, and the
+ * RAT starts from the previous offset next time.
+ */
+void cc26x2_cc13x2_rf_off(void)
+{
+    if (_poweron_state == STATE_FINISHED) {
+        uint32_t cmdsta;
+
+        cc26x2_cc13x2_rf_rx_stop();
+
+        _cmd_fs_powerdown.status = RFC_IDLE;
+        _cmd_sync_stop_rat.status = RFC_IDLE;
+        cmdsta = cc26x2_cc13x2_rfc_request_execute((uintptr_t)&_cmd_fs_powerdown);
+        if (((cmdsta & 0xFF) == RFC_CMDSTA_DONE) &&
+            (_wait_cmd(&_cmd_fs_powerdown.status) == 0) &&
+            (_cmd_fs_powerdown.status == RFC_DONE_OK) &&
+            (_wait_cmd(&_cmd_sync_stop_rat.status) == 0) &&
+            (_cmd_sync_stop_rat.status == RFC_DONE_OK)) {
+            rf_cmd_sync_start_rat.rat0 = _cmd_sync_stop_rat.rat0;
+        }
+        else {
+            DEBUG("[cc26x2_cc13x2_rf]: power-down commands failed, cmdsta=%08lx "
+                  "FS=%04x RAT=%04x\n", cmdsta, _cmd_fs_powerdown.status,
+                  _cmd_sync_stop_rat.status);
+        }
+    }
+
+    cc26x2_cc13x2_rfc_power_off();
+    _rx_submitted = false;
+    _poweron_state = STATE_OFF;
 }
 
 /*

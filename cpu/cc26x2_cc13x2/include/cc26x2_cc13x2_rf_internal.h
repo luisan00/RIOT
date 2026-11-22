@@ -391,6 +391,15 @@ int cc26x2_cc13x2_rf_confirm_on(void);
 int cc26x2_cc13x2_rf_request_cca(void);
 
 /**
+ * @brief   Switch the radio off
+ *
+ * Stops reception, powers the synthesizer down, stops the radio timer and
+ * powers the RF Core off. cc26x2_cc13x2_rf_request_on() brings the radio
+ * back with the same mode, channel and TX power.
+ */
+void cc26x2_cc13x2_rf_off(void);
+
+/**
  * @brief   Start RX
  *
  * Does nothing if RX is already on.

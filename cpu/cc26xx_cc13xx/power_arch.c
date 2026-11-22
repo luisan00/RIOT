@@ -195,10 +195,3 @@ void power_clock_enable_rfc(void)
 
     prcm_commit();
 }
-
-void power_clock_disable_rfc(void)
-{
-    PRCM->RFCCLKG &= ~RFCCLKG_CLK_EN;
-
-    prcm_commit();
-}

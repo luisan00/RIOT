@@ -65,6 +65,18 @@ int cc26x2_cc13x2_rfc_confirm_on(void);
 void cc26x2_cc13x2_rfc_finish_on(void (* cpe_patch_fn)(void));
 
 /**
+ * @brief   Power the RF Core off
+ *
+ * Masks the RF Core interrupts, stops its clocks, switches its power domain
+ * off and takes the system back to the HF RC oscillator.
+ *
+ * @pre No radio operation command is running, the synthesizer was powered
+ *      down with CMD_FS_POWERDOWN and, if the radio timer is to resume later,
+ *      it was stopped with CMD_SYNC_STOP_RAT.
+ */
+void cc26x2_cc13x2_rfc_power_off(void);
+
+/**
  * @brief   Request the RF Core to execute a command.
  *
  * @param[in]   cmd   The command to send.
