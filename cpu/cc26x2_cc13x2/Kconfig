@@ -32,4 +32,62 @@ config CPU_MODEL
 config CPU
     default "cc26x2_cc13x2"
 
+if USEMODULE_CC26X2_CC13X2_RF
+
+choice
+    bool "Sub-GHz frequency band"
+    default CC26X2_CC13X2_RF_BAND_863
+    help
+        Frequency band of the IEEE 802.15.4g MR-FSK PHY. Select the band that
+        is allowed where the device is used. The driver does not enforce any
+        regulation.
+
+config CC26X2_CC13X2_RF_BAND_780
+    bool "779-787 MHz (China)"
+
+config CC26X2_CC13X2_RF_BAND_863
+    bool "863-870 MHz (Europe)"
+
+config CC26X2_CC13X2_RF_BAND_915
+    bool "902-928 MHz (US)"
+
+config CC26X2_CC13X2_RF_BAND_917
+    bool "917-923.5 MHz (Korea)"
+
+config CC26X2_CC13X2_RF_BAND_920
+    bool "920-928 MHz (Japan)"
+
+endchoice
+
+# Frequency band identifier of the SUN PHY, IEEE802154_SUN_PHY_FREQ_*
+config CC26X2_CC13X2_RF_SUN_PHY_FREQ
+    int
+    default 3 if CC26X2_CC13X2_RF_BAND_780
+    default 4 if CC26X2_CC13X2_RF_BAND_863
+    default 7 if CC26X2_CC13X2_RF_BAND_915
+    default 8 if CC26X2_CC13X2_RF_BAND_917
+    default 9 if CC26X2_CC13X2_RF_BAND_920
+
+choice
+    bool "Sub-GHz channel spacing"
+    default CC26X2_CC13X2_RF_CHAN_SPACING_200
+    help
+        Channel spacing of the MR-FSK PHY. The channel plan of the selected
+        band follows from it (channel 0 and number of channels).
+
+config CC26X2_CC13X2_RF_CHAN_SPACING_200
+    bool "200 kHz"
+
+config CC26X2_CC13X2_RF_CHAN_SPACING_400
+    bool "400 kHz"
+
+endchoice
+
+config CC26X2_CC13X2_RF_CHAN_SPACING_KHZ
+    int
+    default 200 if CC26X2_CC13X2_RF_CHAN_SPACING_200
+    default 400 if CC26X2_CC13X2_RF_CHAN_SPACING_400
+
+endif # USEMODULE_CC26X2_CC13X2_RF
+
 source "$(RIOTCPU)/cc26xx_cc13xx/Kconfig"
