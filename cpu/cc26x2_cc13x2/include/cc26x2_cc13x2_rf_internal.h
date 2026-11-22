@@ -121,6 +121,22 @@ extern "C" {
 #  define CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ   (200U)
 #endif
 
+/**
+ * @brief   Use the 20 dBm PA of the CC1352P for the TX powers above the
+ *          table of the standard PA
+ *
+ * Only has effect on a board whose 20 dBm PA is matched for the sub-GHz band
+ * and that provides a table for it in its `rf_conf.h`, like the
+ * LAUNCHXL-CC1352P1. A TX power above the highest entry of the standard PA
+ * table then selects the 20 dBm PA, up to 20 dBm.
+ *
+ * It is off by default: the driver does not check any regulation, and most
+ * channels of most bands do not allow these powers.
+ */
+#ifdef DOXYGEN
+#  define CONFIG_CC26X2_CC13X2_RF_PA20
+#endif
+
 /* TODO: teach the HAL about SUN PHY frequency bands? */
 /**
  * @name    SUN PHY channel information

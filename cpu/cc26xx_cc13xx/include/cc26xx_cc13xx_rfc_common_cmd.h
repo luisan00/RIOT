@@ -179,6 +179,24 @@ typedef struct {
 /** @} */
 
 /**
+ * @brief   CMD_SET_TX20_POWER
+ * @{
+ */
+#define RFC_CMD_SET_TX20_POWER (0x0014)
+/**
+ * @brief   Set Transmit Power of the 20 dBm PA
+ *
+ * Only allowed when the 20 dBm PA was selected by the radio setup command
+ * (SWCU185G, section 25.3.3.2.17).
+ */
+typedef struct {
+   uint16_t command_no; /**< The command ID number */
+   uint16_t __dummy0; /**< Reserved */
+   uint32_t tx20_power; /**< New TX power setting of the 20 dBm PA */
+} rfc_cmd_set_tx20_power_t;
+/** @} */
+
+/**
  * @brief   CMD_CLEAR_RX
  * @{
  */

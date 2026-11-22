@@ -45,6 +45,8 @@
  * - Automatic transmission of ACK frames, address filtering, promiscuous mode
  * - CCA by energy detection
  * - TX power from the PA table of the board (`rf_conf.h`)
+ * - Optionally the 20 dBm PA of the CC1352P, on the boards that have it
+ *   matched for the sub-GHz band, see @ref CONFIG_CC26X2_CC13X2_RF_PA20
  *
  * Not implemented:
  *
@@ -52,7 +54,7 @@
  * - Switching the radio off: `off` returns `-ENOTSUP`
  * - LQI, which is reported as 0
  * - 4-FSK, FEC and mode switch
- * - The 2.4 GHz band of the CC1352 and the 20 dBm PA of the CC1352P
+ * - The 2.4 GHz band of the CC1352
  *
  * The driver has been tested on the CC1352P1 LaunchPad only.
  *

@@ -233,6 +233,21 @@ enum {
  * @brief   End of string for override register
  */
 #define RFC_END_OVERRIDE ((uint32_t)0xFFFFFFFF)
+
+/**
+ * @brief   TX power override of the 20 dBm PA (SWCU185G, Table 25-22)
+ *
+ * Mandatory in the override list of a radio setup command whose TX power
+ * field is #RFC_TX_POWER_USE_PA20.
+ */
+#define RFC_TX20_POWER_OVERRIDE(tx20_power) \
+    ((uint32_t)0x002B | (((uint32_t)(tx20_power)) << 10))
+
+/**
+ * @brief   Value of the TX power field of a radio setup command that selects
+ *          the 20 dBm PA, on the devices that have it
+ */
+#define RFC_TX_POWER_USE_PA20   (0xFFFF)
 /** @} */
 
 #ifdef __cplusplus

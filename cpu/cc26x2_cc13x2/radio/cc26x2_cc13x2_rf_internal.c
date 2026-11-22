@@ -68,12 +68,24 @@
 /** @} */
 
 /**
- * @brief   Board hook, called once when the radio is initialized
+ * @brief   Board hook for the RF front end
  *
- * A board with an RF switch selects the sub-GHz path here.
+ * Called with `false` when the radio is initialized and whenever the driver
+ * goes back to the standard PA, and with `true` when it selects the 20 dBm
+ * PA. A board with an RF switch sets it for the sub-GHz band here.
  */
-#ifndef CC26X2_CC13X2_RF_INTERNAL_SETUP
-#  define CC26X2_CC13X2_RF_INTERNAL_SETUP()
+#ifndef CC26X2_CC13X2_RF_FRONTEND_SETUP
+#  define CC26X2_CC13X2_RF_FRONTEND_SETUP(pa20)     (void)(pa20)
+#endif
+
+/**
+ * @brief   Whether the 20 dBm PA can be used: the option is on and the board
+ *          has a table for it in the sub-GHz band
+ */
+#if IS_ACTIVE(CONFIG_CC26X2_CC13X2_RF_PA20) && defined(CC26X2_CC13X2_PA20_TABLE_NUMOF)
+#  define HAVE_PA20                     (1)
+#else
+#  define HAVE_PA20                     (0)
 #endif
 
 /**
@@ -205,6 +217,40 @@ enum {
 #else
 #  define OVERRIDE_PACTL_NUMOF          (0U)
 #endif
+
+/**
+ * @name    Overrides that depend on the PA in use
+ *
+ * From the `pRegOverrideTxStd` and `pRegOverrideTx20` lists of the CC1352P
+ * settings of [RFCFG], for example `setting_tc706_154g.json`. [SDK] attaches
+ * the second list to the override list of the setup command when the 20 dBm
+ * PA is used. They are only part of the list when the 20 dBm PA is available,
+ * so that changing the PA in either direction sets every value again.
+ * @{
+ */
+/* Set TXRX pin to 0 in RX and high impedance in idle/TX. */
+#define OVERRIDE_TXRX_PIN_STD           RFC_HW_REG_OVERRIDE(0x60A8, 0x0401)
+/* Set TXRX pin to 0 in RX/TX and high impedance in idle. */
+#define OVERRIDE_TXRX_PIN_PA20          RFC_HW_REG_OVERRIDE(0x60A8, 0x0001)
+/* Tx: Configure PA ramping, set wait time before turning off (0x1F ticks of
+ * 16/24 us = 20.3 us). */
+#define OVERRIDE_RAMP_OFF_WAIT_TIME_PA20 RFC_HW_REG_OVERRIDE(0x6028, 0x001F)
+/* The ANADIV radio parameter based on LO divider and front end settings, for
+ * the 20 dBm PA: `calcAnaDiv()` in `radioconfig/.meta/override_handler.js`
+ * of [SDK] gives 0x11C1 for the LO divider 5 and 0xF1C1 for the LO divider
+ * 6, in the upper half of the entry. */
+#if CC26X2_CC13X2_RF_LO_DIVIDER == 5
+#  define OVERRIDE_ANADIV_PA20          ((uint32_t)0x11C10703)
+#else
+#  define OVERRIDE_ANADIV_PA20          ((uint32_t)0xF1C10703)
+#endif
+/* Largest number of these entries in the list: the four of the 20 dBm PA */
+#if HAVE_PA20
+#  define OVERRIDES_PA_NUMOF            (4U)
+#else
+#  define OVERRIDES_PA_NUMOF            (0U)
+#endif
+/** @} */
 
 /* 50 kbit/s, modulation index 0.5 (Wi-SUN mode #1a), setting_tc120 */
 static const uint32_t _overrides_50k_h05[] = {
@@ -396,7 +442,11 @@ static const uint32_t _overrides_300k_h05[] = {
  *          current mode, #OVERRIDE_PACTL and the end marker
  */
 static uint32_t _overrides[OVERRIDES_COMMON_NUMOF + OVERRIDES_MODE_MAX +
-                           OVERRIDE_PACTL_NUMOF + 1];
+                           OVERRIDE_PACTL_NUMOF + OVERRIDES_PA_NUMOF + 1];
+
+/** The 20 dBm PA is selected, with this setting from the table of the board */
+static bool _pa20;
+static uint32_t _pa20_val;
 
 /**
  * @brief   MR-FSK mode: the fields of CMD_PROP_RADIO_DIV_SETUP that change
@@ -888,6 +938,15 @@ rfc_cmd_set_tx_power_t rf_cmd_set_tx_power =
     .tx_power = 0,
 };
 
+#if HAVE_PA20
+/** Set TX power of the 20 dBm PA */
+static rfc_cmd_set_tx20_power_t _cmd_set_tx20_power =
+{
+    .command_no = RFC_CMD_SET_TX20_POWER,
+    .tx20_power = 0,
+};
+#endif
+
 /**
  * @brief   Upper bound of the polls of a command status
  *
@@ -938,6 +997,20 @@ static void _load_mode(const fsk_mode_t *mode)
 #if IS_USED(CONFIG_CC26XX_CC13XX_FORCE_VDDR_HH)
     _overrides[n++] = OVERRIDE_PACTL;
 #endif
+    if (HAVE_PA20) {
+        if (_pa20) {
+            /* [TRM] 25.3.3.1.2: with the TX power field set to 0xFFFF the
+             * 20 dBm PA power entry is mandatory. The entries below come
+             * after the ones of the mode and replace its ramp-off wait. */
+            _overrides[n++] = RFC_TX20_POWER_OVERRIDE(_pa20_val);
+            _overrides[n++] = OVERRIDE_ANADIV_PA20;
+            _overrides[n++] = OVERRIDE_RAMP_OFF_WAIT_TIME_PA20;
+            _overrides[n++] = OVERRIDE_TXRX_PIN_PA20;
+        }
+        else {
+            _overrides[n++] = OVERRIDE_TXRX_PIN_STD;
+        }
+    }
     _overrides[n] = RFC_END_OVERRIDE;
 
     _mode = mode;
@@ -969,7 +1042,8 @@ static void _load_mode(const fsk_mode_t *mode)
  */
 void cc26x2_cc13x2_rf_internal_init(void)
 {
-    CC26X2_CC13X2_RF_INTERNAL_SETUP();
+    _pa20 = false;
+    CC26X2_CC13X2_RF_FRONTEND_SETUP(false);
 
     /* Initialize data entries as general, with a length field of 2 bytes
      * (uint16_t) and the correct RX buffer size */
@@ -1369,27 +1443,15 @@ void cc26x2_cc13x2_rf_set_cca_threshold(int8_t threshold)
  * ([TRM] Table 25-175, driverlib rf_prop_cmd.h). The TX power of the setup
  * command is the last one set by cc26x2_cc13x2_rf_set_tx_pwr().
  */
-int cc26x2_cc13x2_rf_set_fsk_mode(ieee802154_mr_fsk_srate_t srate, uint8_t mod_idx)
+/*
+ * Runs CMD_PROP_RADIO_DIV_SETUP chained with CMD_FS, with what _load_mode()
+ * and cc26x2_cc13x2_rf_set_tx_pwr() left in the commands. The radio must be
+ * idle.
+ */
+static int _run_setup(void)
 {
-    const fsk_mode_t *mode = NULL;
     uint32_t cmdsta;
 
-    for (unsigned i = 0; i < ARRAY_SIZE(_modes); i++) {
-        if ((_modes[i].srate == srate) && (_modes[i].mod_idx == mod_idx)) {
-            mode = &_modes[i];
-            break;
-        }
-    }
-    if (mode == NULL) {
-        DEBUG("[cc26x2_cc13x2_rf]: no MR-FSK mode for srate=%u mod_idx=%u\n",
-              (unsigned)srate, (unsigned)mod_idx);
-        return -EINVAL;
-    }
-    if (mode == _mode) {
-        return 0;
-    }
-
-    _load_mode(mode);
     rf_cmd_prop_radio_div_setup.status = RFC_IDLE;
     rf_cmd_fs.status = RFC_IDLE;
 
@@ -1410,6 +1472,30 @@ int cc26x2_cc13x2_rf_set_fsk_mode(ieee802154_mr_fsk_srate_t srate, uint8_t mod_i
     }
 
     return 0;
+}
+
+int cc26x2_cc13x2_rf_set_fsk_mode(ieee802154_mr_fsk_srate_t srate, uint8_t mod_idx)
+{
+    const fsk_mode_t *mode = NULL;
+
+    for (unsigned i = 0; i < ARRAY_SIZE(_modes); i++) {
+        if ((_modes[i].srate == srate) && (_modes[i].mod_idx == mod_idx)) {
+            mode = &_modes[i];
+            break;
+        }
+    }
+    if (mode == NULL) {
+        DEBUG("[cc26x2_cc13x2_rf]: no MR-FSK mode for srate=%u mod_idx=%u\n",
+              (unsigned)srate, (unsigned)mod_idx);
+        return -EINVAL;
+    }
+    if (mode == _mode) {
+        return 0;
+    }
+
+    _load_mode(mode);
+
+    return _run_setup();
 }
 
 /*
@@ -1457,8 +1543,9 @@ int cc26x2_cc13x2_rf_change_chan(uint16_t channel)
 }
 
 /*
- * Sets the TX power with the immediate command CMD_SET_TX_POWER
- * ([TRM] 25.3.3.2.16):
+ * Sets the TX power.
+ *
+ * Standard PA, immediate command CMD_SET_TX_POWER ([TRM] 25.3.3.2.16):
  *
  * - `tx_power` packs the PA settings: IB in bits 0-5, GC in bits 6-7, boost
  *   in bit 8 and the temperature coefficient in bits 9-15, the layout of
@@ -1468,19 +1555,64 @@ int cc26x2_cc13x2_rf_change_chan(uint16_t channel)
  *   "LAUNCHXL-CC1352P1" table for 770-930 MHz of [RFCFG]
  *   (`pa_tables/cc13x2_cc26x2_r3/pasettings.json`).
  * - The new value is used from the next frame on.
- * - The command is not allowed if the setup command selected the 20 dBm PA
- *   of the "P" devices (`tx_power = 0xFFFF`). This driver always sets up the
- *   standard PA.
  *
- * On a CC1352P with the `_PA` setup command and its override lists, [SDK]
- * changes the power with CMD_CHANGE_PA instead (RF_updatePaConfiguration()).
- * Without those lists it falls back to CMD_SET_TX_POWER for the standard PA,
- * which is what is done here.
+ * 20 dBm PA of the "P" devices, used for a power above the table of the
+ * standard PA when the board has it for this band and
+ * CONFIG_CC26X2_CC13X2_RF_PA20 is set:
+ *
+ * - The PA is selected by the setup command: `tx_power = 0xFFFF` and a 20 dBm
+ *   PA power entry in its override list ([TRM] 25.3.3.1.2 and Table 25-22).
+ *   So a change of PA, in either direction, runs the setup command again,
+ *   which needs the radio to be idle, and tells the board to set its RF
+ *   front end for that PA.
+ * - While the 20 dBm PA is selected its power is changed with
+ *   CMD_SET_TX20_POWER and CMD_SET_TX_POWER is not allowed, and the other way
+ *   around ([TRM] 25.3.3.2.16 and 25.3.3.2.17).
+ *
+ * [SDK] changes the PA with CMD_CHANGE_PA and the override lists of its `_PA`
+ * setup structures (RF_updatePaConfiguration()). That command is not in
+ * [TRM], so it is not used here.
  */
 int cc26x2_cc13x2_rf_set_tx_pwr(int16_t pow)
 {
     uint32_t cmdsta;
     cc26x2_cc13x2_rf_pa_t *match = &cc26x2_cc13x2_rf_patable[0];
+
+#if HAVE_PA20
+    if (pow > cc26x2_cc13x2_rf_patable[0].dbm) {
+        const cc26x2_cc13x2_rf_pa20_t *pa20 = &cc26x2_cc13x2_rf_pa20_table[0];
+
+        for (unsigned i = 0; i < CC26X2_CC13X2_PA20_TABLE_NUMOF; i++) {
+            if (cc26x2_cc13x2_rf_pa20_table[i].dbm >= pow) {
+                pa20 = &cc26x2_cc13x2_rf_pa20_table[i];
+            }
+            else {
+                break;
+            }
+        }
+        DEBUG("[cc26x2_cc13x2_rf]: 20 dBm PA at %"PRIi16" dBm (for %"PRIi16" dBm)\n",
+              pa20->dbm, pow);
+
+        _pa20_val = pa20->val;
+        if (!_pa20) {
+            _pa20 = true;
+            rf_cmd_prop_radio_div_setup.tx_power = RFC_TX_POWER_USE_PA20;
+            _load_mode(_mode);
+            CC26X2_CC13X2_RF_FRONTEND_SETUP(true);
+            return _run_setup();
+        }
+        /* the setup command of a later mode change takes the value from the
+         * override list */
+        _load_mode(_mode);
+        _cmd_set_tx20_power.tx20_power = pa20->val;
+        cmdsta = cc26x2_cc13x2_rfc_request_execute((uintptr_t)&_cmd_set_tx20_power);
+        if ((cmdsta & 0xFF) != RFC_CMDSTA_DONE) {
+            DEBUG("[cc26x2_cc13x2_rf]: couldn't set the power of the 20 dBm PA\n");
+            return -EIO;
+        }
+        return 0;
+    }
+#endif
 
     for (unsigned i = 0; i < CC26X2_CC13X2_PA_TABLE_NUMOF; i++) {
         if (cc26x2_cc13x2_rf_patable[i].dbm >= pow) {
@@ -1498,6 +1630,14 @@ int cc26x2_cc13x2_rf_set_tx_pwr(int16_t pow)
     /* a later setup command, see cc26x2_cc13x2_rf_set_fsk_mode(), would set
      * the power of its own field again */
     rf_cmd_prop_radio_div_setup.tx_power = match->val;
+
+    if (HAVE_PA20 && _pa20) {
+        /* back to the standard PA */
+        _pa20 = false;
+        _load_mode(_mode);
+        CC26X2_CC13X2_RF_FRONTEND_SETUP(false);
+        return _run_setup();
+    }
 
     /* execute the command, it is immediate */
     cmdsta = cc26x2_cc13x2_rfc_request_execute((uintptr_t)&rf_cmd_set_tx_power);

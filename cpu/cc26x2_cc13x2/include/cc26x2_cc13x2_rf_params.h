@@ -42,6 +42,14 @@ typedef struct {
     uint16_t val; /**< Coded value for the PA entry */
 } cc26x2_cc13x2_rf_pa_t;
 
+/**
+ * @brief   Entry of the PA table of the 20 dBm PA of the CC1352P
+ */
+typedef struct {
+    int16_t dbm;  /**< PA entry value in dBm */
+    uint32_t val; /**< Coded value for the PA entry */
+} cc26x2_cc13x2_rf_pa20_t;
+
 #ifdef __cplusplus
 } /* end extern "C" */
 #endif

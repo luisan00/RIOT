@@ -88,6 +88,14 @@ config CC26X2_CC13X2_RF_CHAN_SPACING_KHZ
     default 200 if CC26X2_CC13X2_RF_CHAN_SPACING_200
     default 400 if CC26X2_CC13X2_RF_CHAN_SPACING_400
 
+config CC26X2_CC13X2_RF_PA20
+    bool "Use the 20 dBm PA for TX powers above the standard PA"
+    help
+        On a CC1352P board whose 20 dBm PA is matched for the sub-GHz band, a
+        TX power above the table of the standard PA selects the 20 dBm PA.
+        The driver does not check any regulation: most channels of most bands
+        do not allow these powers.
+
 endif # USEMODULE_CC26X2_CC13X2_RF
 
 source "$(RIOTCPU)/cc26xx_cc13xx/Kconfig"
