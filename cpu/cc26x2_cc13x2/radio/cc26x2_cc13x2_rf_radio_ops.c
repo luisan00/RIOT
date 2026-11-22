@@ -40,8 +40,23 @@
 #define MAC_TIMER_CHAN_IFS  (1U) /**< MAC timer channel for handling IFS
                                       logic */
 
-/* Set timer period to 20 us (IEEE 802.15.4g-2012 MR-FSK symbol time) */
-#define TIMER_FREQ          (50000UL)
+/* The MAC timer counts microseconds */
+#define TIMER_FREQ          (1000000UL)
+
+/**
+ * @brief   Time without transmitting after a frame was sent, in microseconds
+ *
+ * IEEE Std 802.15.4-2024, 6.3.1: two frames of a device are separated by at
+ * least max(macSifsPeriod, aTurnaroundTime) after a short frame and
+ * max(macLifsPeriod, aTurnaroundTime) after a long one. For the SUN FSK PHY
+ * in the 470 to 928 MHz bands the MAC symbol period is 20 us (Table 20-1),
+ * so macSifsPeriod (12 symbols) is 240 us and macLifsPeriod (40 symbols) is
+ * 800 us (11.1.4), and aTurnaroundTime is 1 ms (Table 12-1): both spaces are
+ * 1 ms. The timer starts when the RF Core reports the end of the
+ * transmission, so the space on the air is longer by the start-up time of
+ * the next one.
+ */
+#define IFS_US              (1000U)
 
 static const ieee802154_radio_ops_t cc26x2_cc13x2_rf_ops;
 static ieee802154_dev_t *cc26x2_cc13x2_rf_hal;
@@ -155,9 +170,9 @@ static void _handle_rx(ieee802154_dev_t *dev)
             /* To send the ACK we need to stop receiving. */
             cc26x2_cc13x2_rf_rx_stop();
 
-            /* Wait a short IFS in order to send the ACK. */
+            /* The ACK goes out AIFS after the frame. */
             timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK,
-                      IEEE802154_SIFS_SYMS);
+                      cc26x2_cc13x2_rf_ack_delay_us());
             timer_start(CC26X2_CC13X2_RF_TIMER);
         }
         else {
@@ -171,18 +186,11 @@ static void _handle_rx(ieee802154_dev_t *dev)
     }
 }
 
-static void _set_ifs_timer(bool lifs)
+static void _set_ifs_timer(void)
 {
-    uint8_t timeout;
     _cfg.ifs = true;
-    if (lifs) {
-        timeout = IEEE802154_LIFS_SYMS;
-    }
-    else {
-        timeout = IEEE802154_SIFS_SYMS;
-    }
 
-    timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_IFS, timeout);
+    timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_IFS, IFS_US);
     timer_start(CC26X2_CC13X2_RF_TIMER);
 }
 
@@ -208,14 +216,13 @@ static void _tx_done(ieee802154_dev_t *dev)
         /* The received frame is indicated whether or not its ACK went out:
          * the sender retransmits if it misses the ACK. */
         _restore_rx();
-        _set_ifs_timer(false);
+        _set_ifs_timer();
         dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
     }
     else {
         _tx_result = sent ? 0 : -EIO;
         if (sent) {
-            _set_ifs_timer(cc26x2_cc13x2_rf_tx_psdu_len() >
-                           IEEE802154_SIFS_MAX_FRAME_SIZE);
+            _set_ifs_timer();
         }
         dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
     }

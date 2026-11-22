@@ -444,12 +444,15 @@ int cc26x2_cc13x2_rf_write(const iolist_t *iolist);
 int cc26x2_cc13x2_rf_request_transmit(void);
 
 /**
- * @brief   Get the PSDU length of the last written packet with
- *          @ref cc26x2_cc13x2_rf_write.
+ * @brief   Time to wait after a frame was received before the transmission
+ *          of its ACK is started
  *
- * @return PSDU length.
+ * Chosen so that the ACK is on the air 1 ms after the end of the frame, the
+ * AIFS of the SUN PHYs, in the current MR-FSK mode.
+ *
+ * @return  the delay in microseconds
  */
-size_t cc26x2_cc13x2_rf_tx_psdu_len(void);
+uint32_t cc26x2_cc13x2_rf_ack_delay_us(void);
 
 /**
  * @brief   Set the CCA threshold for the radio.

@@ -462,6 +462,9 @@ typedef struct {
     uint16_t int_freq;                  /**< intermediate frequency in MHz, signed
                                              4.12 fixed point, 0x8000: default */
     uint8_t preamble_len;               /**< preamble length in bytes */
+    uint16_t turnaround_us;             /**< time from the end of a received
+                                             frame to the first bit of a frame
+                                             sent in reply without waiting */
     const uint32_t *overrides;          /**< mode specific overrides */
 } fsk_mode_t;
 
@@ -479,6 +482,15 @@ typedef struct {
  * - Every mode uses #SYNC_WORD with 24 bits and the IEEE 802.15.4g whitener
  *   and CRC (`whitenMode` 7).
  *
+ * `turnaround_us` is not from TI. It is what the RF Core and this driver need
+ * between the end of a received frame and the start of the preamble of the
+ * next transmission: the interrupt of the received frame, the end of the
+ * receive command and the start of the transmit command. Measured on a
+ * CC1352P1 with a second one as a sniffer, from the timestamps the RF Core
+ * gives to the received frames; it grows with the symbol period and repeats
+ * within 5 us. The driver subtracts it from the 1 ms the standard asks for
+ * before an ACK, see cc26x2_cc13x2_rf_ack_delay_us().
+ *
  * [RFCFG] has no 2-GFSK setting for 400 kbit/s, nor for 150 kbit/s and
  * 300 kbit/s with modulation index 1.0, and FEC needs an MCE patch
  * ([TRM] 25.10.5.2.1).
@@ -487,42 +499,50 @@ static const fsk_mode_t _modes[] = {
     {   /* setting_tc120: 12.5 kHz deviation, 68 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_50K, .mod_idx = 32,
         .deviation = 50, .rate_word = 32768, .rx_bw = 80, .preamble_len = 4,
-        .int_freq = 0x0399, .overrides = _overrides_50k_h05,
+        .int_freq = 0x0399, .turnaround_us = 818,
+        .overrides = _overrides_50k_h05,
     },
     {   /* setting_tc106_154g: 25 kHz deviation, 100 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_50K, .mod_idx = 64,
         .deviation = 100, .rate_word = 32768, .rx_bw = 82, .preamble_len = 7,
-        .int_freq = 0x8000, .overrides = _overrides_50k_h1,
+        .int_freq = 0x8000, .turnaround_us = 819,
+        .overrides = _overrides_50k_h1,
     },
     {   /* setting_tc152_154g: 25 kHz deviation, 137 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_100K, .mod_idx = 32,
         .deviation = 100, .rate_word = 65536, .rx_bw = 84, .preamble_len = 7,
-        .int_freq = 0x0599, .overrides = _overrides_100k_h05,
+        .int_freq = 0x0599, .turnaround_us = 510,
+        .overrides = _overrides_100k_h05,
     },
     {   /* setting_tc137: 50 kHz deviation, 196 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_100K, .mod_idx = 64,
         .deviation = 200, .rate_word = 65536, .rx_bw = 86, .preamble_len = 4,
-        .int_freq = 0x08CC, .overrides = _overrides_100k_h1,
+        .int_freq = 0x08CC, .turnaround_us = 509,
+        .overrides = _overrides_100k_h1,
     },
     {   /* setting_tc142: 37.5 kHz deviation, 273 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_150K, .mod_idx = 32,
         .deviation = 150, .rate_word = 98304, .rx_bw = 88, .preamble_len = 4,
-        .int_freq = 0x08CC, .overrides = _overrides_150k_h05,
+        .int_freq = 0x08CC, .turnaround_us = 401,
+        .overrides = _overrides_150k_h05,
     },
     {   /* setting_tc146_154g: 50 kHz deviation, 311 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_200K, .mod_idx = 32,
         .deviation = 200, .rate_word = 131072, .rx_bw = 89, .preamble_len = 7,
-        .int_freq = 0x0999, .overrides = _overrides_200k_h05,
+        .int_freq = 0x0999, .turnaround_us = 355,
+        .overrides = _overrides_200k_h05,
     },
     {   /* setting_tc151: 100 kHz deviation, 273 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_200K, .mod_idx = 64,
         .deviation = 400, .rate_word = 131072, .rx_bw = 88, .preamble_len = 4,
-        .int_freq = 0x0733, .overrides = _overrides_200k_h1,
+        .int_freq = 0x0733, .turnaround_us = 356,
+        .overrides = _overrides_200k_h1,
     },
     {   /* setting_tc154: 75 kHz deviation, 285 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_300K, .mod_idx = 32,
         .deviation = 300, .rate_word = 196608, .rx_bw = 92, .preamble_len = 4,
-        .int_freq = 0x0666, .overrides = _overrides_300k_h05,
+        .int_freq = 0x0666, .turnaround_us = 304,
+        .overrides = _overrides_300k_h05,
     },
 };
 
@@ -1530,9 +1550,16 @@ int cc26x2_cc13x2_rf_request_transmit(void)
     return 0;
 }
 
-size_t cc26x2_cc13x2_rf_tx_psdu_len(void)
+/*
+ * IEEE Std 802.15.4-2024, 6.6.3.3: the transmission of an Ack frame starts
+ * AIFS after the last symbol of the frame it acknowledges, and AIFS is 1 ms
+ * for the SUN PHYs.
+ */
+uint32_t cc26x2_cc13x2_rf_ack_delay_us(void)
 {
-    return rf_cmd_prop_tx_adv.pkt_len - IEEE802154_PHY_MR_FSK_PHR_LEN;
+    const uint32_t aifs_us = 1000;
+
+    return (_mode->turnaround_us < aifs_us) ? (aifs_us - _mode->turnaround_us) : 0;
 }
 
 void cc26x2_cc13x2_rf_set_cca_threshold(int8_t threshold)
