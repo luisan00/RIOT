@@ -9,6 +9,9 @@ BOARDS_SUPPORTED += adafruit-clue \
                    arduino-nano-33-ble \
                    atmega256rfr2-xpro \
                    avr-rss2 \
+                   cc1312-launchpad \
+                   cc1352-launchpad \
+                   cc1352p-launchpad \
                    cc2538dk \
                    derfmega128 \
                    derfmega256 \
