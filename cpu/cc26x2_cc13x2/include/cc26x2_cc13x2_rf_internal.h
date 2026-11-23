@@ -25,7 +25,6 @@
 #include "iolist.h"
 #include "byteorder.h"
 #include "macros/units.h"
-#include "modules.h"
 #include "net/ieee802154.h"
 
 #include "cc26xx_cc13xx_rfc_common_cmd.h"
@@ -86,6 +85,28 @@ extern "C" {
 /** @} */
 
 /**
+ * @brief   The 863 MHz band with the channel plan of TI's 15.4-Stack and of
+ *          RIOT's AT86RF215 driver
+ *
+ * A value for #CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ that is not a band
+ * identifier of the standard. The plan is there for compatibility with those
+ * radios and it is not the one the standard gives to the SUN FSK PHY in the
+ * 863 MHz band:
+ *
+ * | Channel spacing | `IEEE802154_SUN_PHY_FREQ_863_MHZ` | This plan         |
+ * |:--------------- |:--------------------------------- |:----------------- |
+ * | 100 kHz         | 863.1 MHz, 0-68                   | not available     |
+ * | 200 kHz         | 863.1 MHz, 0-34                   | 863.125 MHz, 0-33 |
+ * | 400 kHz         | not available                     | 863.225 MHz, 0-16 |
+ *
+ * The channels of the two plans are 25 kHz apart, so a node with one and a
+ * node with the other do not hear each other. The plan comes from
+ * `ti154stack_rf_config_common.js` of the SimpleLink SDK and from
+ * `drivers/at86rf215/at86rf215_fsk.c`.
+ */
+#define CC26X2_CC13X2_RF_FREQ_863_COMPAT    104
+
+/**
  * @brief   SUN PHY frequency band used, one of the `IEEE802154_SUN_PHY_FREQ_*`
  *          identifiers
  *
@@ -121,7 +142,7 @@ extern "C" {
  * is selected with #CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ.
  *
  * For the 863 MHz band there is also a plan that is not in the standard, for
- * compatibility with other radios, see #CONFIG_CC26X2_CC13X2_RF_863_COMPAT.
+ * compatibility with other radios: #CC26X2_CC13X2_RF_FREQ_863_COMPAT.
  *
  * The other bands are not available. The 169 MHz, 450 MHz and 470 MHz bands
  * are outside the range of the RF front end, the modes of the 896 MHz,
@@ -131,13 +152,22 @@ extern "C" {
  * Pick the band that is allowed where the device is used: the driver does not
  * check any regulation, neither the band nor duty cycle or channel limits.
  *
- * The default is the 863 MHz band. With Kconfig the band is chosen in the
- * "Sub-GHz frequency band" menu of the CPU. Without it, define this macro, for
- * example
+ * The default is the 863 MHz band with the compatibility plan,
+ * #CC26X2_CC13X2_RF_FREQ_863_COMPAT, so that a node with the default
+ * configuration is on the frequency of a node with RIOT's AT86RF215 driver:
+ * with the default channel spacing of this plan (400 kHz), symbol rate
+ * (200 ksym/s), modulation index (1.0) and channel (5) of the stack, it is
+ * on 865.225 MHz like that driver in its default MR-FSK configuration. The
+ * AT86RF215 has to be set to the MR-FSK PHY and to 2-FSK for it, as its own
+ * defaults are O-QPSK and 4-FSK. For the plan of the standard select
+ * `IEEE802154_SUN_PHY_FREQ_863_MHZ`.
+ *
+ * With Kconfig the band is chosen in the "Sub-GHz frequency band" menu of
+ * the CPU. Without it, define this macro, for example
  * `CFLAGS += -DCONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ=IEEE802154_SUN_PHY_FREQ_915_MHZ`.
  */
 #ifndef CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ
-#  define CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ   IEEE802154_SUN_PHY_FREQ_863_MHZ
+#  define CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ   CC26X2_CC13X2_RF_FREQ_863_COMPAT
 #endif
 
 /**
@@ -162,35 +192,17 @@ extern "C" {
  *
  * The build fails if the band has no plan for the spacing.
  *
- * The default is 200 kHz. With Kconfig it is chosen in the "Sub-GHz channel
+ * The default is 200 kHz, except for the compatibility plan
+ * #CC26X2_CC13X2_RF_FREQ_863_COMPAT, where it is 400 kHz like in RIOT's
+ * AT86RF215 driver. With Kconfig it is chosen in the "Sub-GHz channel
  * spacing" menu of the CPU.
  */
 #ifndef CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ
-#  define CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ   (200U)
-#endif
-
-/**
- * @brief   In the 863 MHz band, use the channel plan of TI's 15.4-Stack and
- *          of RIOT's AT86RF215 driver instead of the one of the standard
- *
- * This option is only there for compatibility with those radios. Their plan
- * is not the one the standard gives to the SUN FSK PHY in this band:
- *
- * | Channel spacing | Standard          | With this option  |
- * |:--------------- |:----------------- |:----------------- |
- * | 100 kHz         | 863.1 MHz, 0-68   | not available     |
- * | 200 kHz         | 863.1 MHz, 0-34   | 863.125 MHz, 0-33 |
- * | 400 kHz         | not available     | 863.225 MHz, 0-16 |
- *
- * The channels of the two plans are 25 kHz apart, so a node with this option
- * and a node without it do not hear each other. The plan comes from
- * `ti154stack_rf_config_common.js` of the SimpleLink SDK and from
- * `drivers/at86rf215/at86rf215_fsk.c`.
- *
- * It is off by default and can only be used with the 863 MHz band.
- */
-#ifdef DOXYGEN
-#  define CONFIG_CC26X2_CC13X2_RF_863_COMPAT
+#  if CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == CC26X2_CC13X2_RF_FREQ_863_COMPAT
+#    define CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ (400U)
+#  else
+#    define CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ (200U)
+#  endif
 #endif
 
 /**
@@ -229,11 +241,6 @@ extern "C" {
 /** @brief   Channel spacing in Hz */
 #define CC26X2_CC13X2_RF_CHAN_SPACING           KHZ(CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ)
 
-#if IS_ACTIVE(CONFIG_CC26X2_CC13X2_RF_863_COMPAT) && \
-    (CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ != IEEE802154_SUN_PHY_FREQ_863_MHZ)
-#  error "CONFIG_CC26X2_CC13X2_RF_863_COMPAT: only for the 863 MHz band"
-#endif
-
 #if CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_780_MHZ
 /** @brief   Center frequency of the band in MHz */
 #  define CC26X2_CC13X2_RF_CENTER_FREQ          (783U)
@@ -253,18 +260,7 @@ extern "C" {
 #  endif
 #elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_863_MHZ
 #  define CC26X2_CC13X2_RF_CENTER_FREQ          (868U)
-#  if IS_ACTIVE(CONFIG_CC26X2_CC13X2_RF_863_COMPAT)
-/* not the plan of the standard, see CONFIG_CC26X2_CC13X2_RF_863_COMPAT */
-#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
-#      define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863125)
-#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
-#      define CC26X2_CC13X2_RF_CHAN_MAX         (33)
-#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
-#      define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863225)
-#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
-#      define CC26X2_CC13X2_RF_CHAN_MAX         (16)
-#    endif
-#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 100
+#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 100
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863100)
 #    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
 #    define CC26X2_CC13X2_RF_CHAN_MAX           (68)
@@ -272,6 +268,18 @@ extern "C" {
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863100)
 #    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
 #    define CC26X2_CC13X2_RF_CHAN_MAX           (34)
+#  endif
+#elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == CC26X2_CC13X2_RF_FREQ_863_COMPAT
+/* not the plan of the standard, see CC26X2_CC13X2_RF_FREQ_863_COMPAT */
+#  define CC26X2_CC13X2_RF_CENTER_FREQ          (868U)
+#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863125)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (33)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863225)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (16)
 #  endif
 #elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_866_MHZ
 #  define CC26X2_CC13X2_RF_CENTER_FREQ          (867U)

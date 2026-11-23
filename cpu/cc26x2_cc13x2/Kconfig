@@ -36,17 +36,27 @@ if USEMODULE_CC26X2_CC13X2_RF
 
 choice
     bool "Sub-GHz frequency band"
-    default CC26X2_CC13X2_RF_BAND_863
+    default CC26X2_CC13X2_RF_BAND_863_COMPAT
     help
         Frequency band of the IEEE 802.15.4 SUN FSK (MR-FSK) PHY. Select the
         band that is allowed where the device is used. The driver does not
         enforce any regulation.
 
+config CC26X2_CC13X2_RF_BAND_863_COMPAT
+    bool "863 MHz: 863-870 MHz (Europe), compatibility channel plan"
+    help
+        The channel plan of TI's 15.4-Stack and of RIOT's AT86RF215 driver,
+        for compatibility with those radios. It is not the plan of the
+        standard: channel 0 is at 863.125 MHz with 200 kHz spacing and at
+        863.225 MHz with 400 kHz spacing, where the standard has 863.1 MHz
+        with 100 kHz and 200 kHz spacing. A node with this plan and a node
+        with the one of the standard do not hear each other.
+
 config CC26X2_CC13X2_RF_BAND_780
     bool "780 MHz: 779-787 MHz"
 
 config CC26X2_CC13X2_RF_BAND_863
-    bool "863 MHz: 863-870 MHz (Europe)"
+    bool "863 MHz: 863-870 MHz (Europe), channel plan of the standard"
 
 config CC26X2_CC13X2_RF_BAND_866
     bool "866 MHz: 865-868 MHz (India)"
@@ -111,19 +121,11 @@ config CC26X2_CC13X2_RF_SUN_PHY_FREQ
     default 22 if CC26X2_CC13X2_RF_BAND_920_A
     default 23 if CC26X2_CC13X2_RF_BAND_920_B
     default 24 if CC26X2_CC13X2_RF_BAND_867
-
-config CC26X2_CC13X2_RF_863_COMPAT
-    bool "863 MHz: channel plan of TI's 15.4-Stack and the AT86RF215 driver"
-    depends on CC26X2_CC13X2_RF_BAND_863
-    help
-        Only for compatibility with those radios: this is not the channel
-        plan of the standard. Channel 0 is at 863.125 MHz with 200 kHz
-        spacing and at 863.225 MHz with 400 kHz spacing, where the standard
-        has 863.1 MHz with 100 kHz and 200 kHz spacing. A node with this
-        option and a node without it do not hear each other.
+    default 104 if CC26X2_CC13X2_RF_BAND_863_COMPAT
 
 choice
     bool "Sub-GHz channel spacing"
+    default CC26X2_CC13X2_RF_CHAN_SPACING_400 if CC26X2_CC13X2_RF_BAND_863_COMPAT
     default CC26X2_CC13X2_RF_CHAN_SPACING_200
     help
         Channel spacing of the MR-FSK PHY. The channel plan of the selected
@@ -134,18 +136,16 @@ choice
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_100
     bool "100 kHz"
-    depends on (CC26X2_CC13X2_RF_BAND_863 && !CC26X2_CC13X2_RF_863_COMPAT) || \
-               CC26X2_CC13X2_RF_BAND_866 || CC26X2_CC13X2_RF_BAND_867 || \
-               CC26X2_CC13X2_RF_BAND_870
+    depends on CC26X2_CC13X2_RF_BAND_863 || CC26X2_CC13X2_RF_BAND_866 || \
+               CC26X2_CC13X2_RF_BAND_867 || CC26X2_CC13X2_RF_BAND_870
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_200
     bool "200 kHz"
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_400
     bool "400 kHz"
-    depends on (!CC26X2_CC13X2_RF_BAND_863 || CC26X2_CC13X2_RF_863_COMPAT) && \
-               !CC26X2_CC13X2_RF_BAND_866 && !CC26X2_CC13X2_RF_BAND_870 && \
-               !CC26X2_CC13X2_RF_BAND_920_A
+    depends on !CC26X2_CC13X2_RF_BAND_863 && !CC26X2_CC13X2_RF_BAND_866 && \
+               !CC26X2_CC13X2_RF_BAND_870 && !CC26X2_CC13X2_RF_BAND_920_A
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_600
     bool "600 kHz"

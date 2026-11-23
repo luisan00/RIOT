@@ -553,10 +553,12 @@ static const fsk_mode_t _modes[] = {
 };
 
 /**
- * @brief   Mode set up at power-on: 50 kbit/s, modulation index 1.0, the
- *          operating mode #1 of every band
+ * @brief   Mode set up at power-on: 200 kbit/s, modulation index 1.0, the
+ *          default of the stack (CONFIG_IEEE802154_MR_FSK_DEFAULT_SRATE and
+ *          CONFIG_IEEE802154_MR_FSK_DEFAULT_MOD_IDX) and of RIOT's AT86RF215
+ *          driver
  */
-#define MODE_DEFAULT                    (1U)
+#define MODE_DEFAULT                    (6U)
 
 /** Mode of the current setup command */
 static const fsk_mode_t *_mode = &_modes[MODE_DEFAULT];
