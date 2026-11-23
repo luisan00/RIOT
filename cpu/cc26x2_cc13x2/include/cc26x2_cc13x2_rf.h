@@ -55,6 +55,8 @@
  * - Automatic transmission of ACK frames, address filtering, promiscuous mode
  * - CCA by energy detection
  * - TX power from the PA table of the board (`rf_conf.h`)
+ * - The IEEE address of the device as long address of the network interface,
+ *   see cc26x2_cc13x2_rf_get_eui64()
  * - Optionally the 20 dBm PA of the CC1352P, on the boards that have it
  *   matched for the sub-GHz band, see @ref CONFIG_CC26X2_CC13X2_RF_PA20
  *
@@ -76,6 +78,7 @@
  * @author          Luis A. Ruiz <luisan00@hotmail.com>
  */
 
+#include "net/eui64.h"
 #include "net/ieee802154/radio.h"
 
 #ifdef __cplusplus
@@ -105,6 +108,21 @@ void cc26x2_cc13x2_rf_init(void);
  * @param[in] hal  pointer to the HAL descriptor associated to the device.
  */
 void cc26x2_cc13x2_rf_hal_setup(ieee802154_dev_t *hal);
+
+/**
+ * @brief   Get the IEEE address (EUI-64) of the device
+ *
+ * It is the custom address of the customer configuration (CCFG) if one is
+ * programmed there, and otherwise the address that TI programs at
+ * production.
+ *
+ * The LaunchPads offer it as EUI-64 provider of the radio (see
+ * @ref net_eui_provider), so it is the long address of the network
+ * interface.
+ *
+ * @param[out]  addr    the address
+ */
+void cc26x2_cc13x2_rf_get_eui64(eui64_t *addr);
 
 #ifdef __cplusplus
 } /* end extern "C" */

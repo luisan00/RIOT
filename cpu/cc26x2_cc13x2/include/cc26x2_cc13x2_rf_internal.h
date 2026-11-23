@@ -710,13 +710,6 @@ int cc26x2_cc13x2_rf_change_chan(uint16_t channel);
 int cc26x2_cc13x2_rf_set_tx_pwr(int16_t pow);
 
 /**
- * @brief   Get HW address of the device.
- *
- * @return  EUI-64 address.
- */
-eui64_t cc26x2_cc13x2_rf_get_hwaddr(void);
-
-/**
  * @brief   Set PAN ID.
  *
  * @param[in]   pan_id The PAN ID.

@@ -1781,31 +1781,30 @@ int cc26x2_cc13x2_rf_set_tx_pwr(int16_t pow)
     return 0;
 }
 
-eui64_t cc26x2_cc13x2_rf_get_hwaddr(void)
+/*
+ * Reads the IEEE address of the device.
+ *
+ * - FCFG1:MAC_15_4_0 holds "the first 32-bits of the 64-bit MAC 15.4
+ *   address" and MAC_15_4_1 the last ones ([TRM] 11.4.1.44 and 11.4.1.45),
+ *   programmed at production.
+ * - CCFG:IEEE_MAC_0 and IEEE_MAC_1 hold bits 31:0 and 63:32 of a custom
+ *   address, which is used when it is not all ones, the erased state
+ *   (`hw_ccfg.h` of [SDK]).
+ *
+ * Both are numbers, so the first byte in memory is the last one of the
+ * EUI-64. On a LAUNCHXL-CC1352P1 the FCFG words read 0x1CA5C2EF and
+ * 0x00124B00 for the address 00:12:4B:00:1C:A5:C2:EF, which starts with
+ * TI's OUI 00:12:4B.
+ */
+void cc26x2_cc13x2_rf_get_eui64(eui64_t *addr)
 {
-    eui64_t ret;
-    size_t i;
-    uint8_t *hwaddr;
-    assert(IEEE802154_LONG_ADDRESS_LEN == sizeof(uint64_t));
+    uint64_t val = ((uint64_t)CCFG->IEEE_MAC_1 << 32) | CCFG->IEEE_MAC_0;
 
-    /* The IEEE MAC address can be stored in two places. We check the Customer
-     * Configuration to see if it has a valid HW address. */
-    hwaddr = (uint8_t *)&CCFG->IEEE_MAC_0;
-    for (i = 0; i < IEEE802154_LONG_ADDRESS_LEN; i++) {
-        if (hwaddr[i] != 0xFF) {
-            break;
-        }
+    if (val == UINT64_MAX) {
+        val = ((uint64_t)FCFG->MAC_15_4_1 << 32) | FCFG->MAC_15_4_0;
     }
 
-    if (i == IEEE802154_LONG_ADDRESS_LEN) {
-        /* The CCFG address was all 0xFF (empty), switch to the fcfg which
-         * always has a valid HW address from factory */
-        hwaddr = (uint8_t *)&FCFG->MAC_15_4_0;
-    }
-
-    /* The IEEE MAC address is stored in network byte order. */
-    memcpy(ret.uint8, hwaddr, IEEE802154_LONG_ADDRESS_LEN);
-    return ret;
+    addr->uint64 = byteorder_htonll(val);
 }
 
 void cc26x2_cc13x2_rf_set_short_addr(network_uint16_t short_addr)
