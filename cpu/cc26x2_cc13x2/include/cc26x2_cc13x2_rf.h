@@ -76,8 +76,15 @@
  *   at the same time, is not lost: it is acknowledged and kept, the
  *   transmission is reported as not acknowledged, and the frame is indicated
  *   when the upper layer sets the radio to RX again
- * - CCA by energy detection, on request and before a transmission: the RF
- *   Core only transmits if the channel was clear for the CCA duration
+ * - CCA by energy detection (CCA mode 1), on request and before a
+ *   transmission. While the receiver runs it is the RSSI of the receiver,
+ *   read for the CCA duration, as the RF Core does it in its IEEE 802.15.4
+ *   mode: RX is not stopped for it, so a frame whose preamble is the energy
+ *   on the channel is still received. With the receiver off the RF Core
+ *   senses the carrier with a command of its own and only transmits if the
+ *   channel was clear for the CCA duration. IEEE Std 802.15.4-2024, 11.2.8,
+ *   does not recommend CCA mode 1 for the SUN FSK PHY when the channel
+ *   spacing is below twice the symbol rate, and this radio has no other
  * - CSMA-CA before a transmission, with the backoff exponents and the number
  *   of retries set with `set_csma_params` of the radio HAL (0 retries: a
  *   single CCA, a negative number: none). The radio listens during the

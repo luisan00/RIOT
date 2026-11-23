@@ -1684,6 +1684,71 @@ bool cc26x2_cc13x2_rf_rx_has_ended(void)
     return !_rx_is_on();
 }
 
+/**
+ * @brief   Longest wait for the first RSSI value of a receiver that has just
+ *          started, in microseconds
+ */
+#define CCA_RSSI_WAIT_US                (400U)
+
+/*
+ * CCA from the receiver that is running, as the RF Core does it itself in
+ * its IEEE 802.15.4 mode, where "while the receiver is running, the radio CPU
+ * monitors some signals for use in clear-channel assessment" and the CSMA-CA
+ * operation "checks the CCA state from the background-level operation"
+ * ([TRM] 25.5.4.1.5 and 25.5.4.3). The proprietary mode has no such state,
+ * but the same source: the direct command CMD_GET_RSSI returns the RSSI of
+ * the running receiver, in dBm in byte 2 of CMDSTA, or -128 if there is none
+ * yet ([TRM] 25.3.3.2.3). Measured on a CC1312R with CMD_PROP_RX_ADV:
+ *
+ * - The command takes 10 us and does not disturb a reception.
+ * - The first value is there 95 to 205 us after RX started, from 300 down to
+ *   50 ksym/s, and a new one about every 3.5 symbol periods after that.
+ * - On a free channel it reads -122 to -96 dBm. When a frame starts it is at
+ *   the level of the frame within one or two values, at the very start of
+ *   the preamble, long before the sync word.
+ *
+ * The channel is busy at the first value at or above the threshold, CCA mode
+ * 1 of the standard, and clear when the values stayed below it for
+ * phyCcaDuration. RX is not touched: with the carrier sense command instead,
+ * RX has to be stopped first, and a frame whose preamble is on the air at
+ * that moment is lost.
+ */
+int cc26x2_cc13x2_rf_rx_cca(void)
+{
+    uint32_t start = RFC_RAT->RATCNT;
+    uint32_t first = 0;
+    bool valid = false;
+
+    while (_rx_is_on()) {
+        uint32_t cmdsta =
+            cc26x2_cc13x2_rfc_request_execute(RFC_CMDR_DIR_CMD(RFC_CMD_GET_RSSI));
+        uint32_t now = RFC_RAT->RATCNT;
+        int8_t rssi = (int8_t)(cmdsta >> 16);
+
+        if ((cmdsta & 0xFF) != RFC_CMDSTA_DONE) {
+            break;
+        }
+        if (rssi == -128) {
+            /* the RAT counts 250 ns */
+            if ((now - start) > (CCA_RSSI_WAIT_US * 4)) {
+                break;
+            }
+        }
+        else if (rssi >= rf_cmd_prop_cs.rssi_thr) {
+            return 1;
+        }
+        else if (!valid) {
+            valid = true;
+            first = now;
+        }
+        else if ((now - first) >= (CCA_DURATION_US * 4)) {
+            return 0;
+        }
+    }
+
+    return -ENODEV;
+}
+
 /*
  * [TRM] 25.10.5.2.1, note: "The IEEE 802.15.4g PHY header must be presented
  * MSB first to the RF Core. In IEEE 802.15.4g specification, the payload part

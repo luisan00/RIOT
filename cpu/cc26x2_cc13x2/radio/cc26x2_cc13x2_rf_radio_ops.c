@@ -165,7 +165,8 @@ enum {
 
 static volatile uint8_t _tx_state;
 
-/** The transmission in progress was requested with a CCA before it */
+/** The transmission in progress starts with the carrier sense command of
+ *  the RF Core, see _tx_submit() */
 static bool _tx_cca;
 
 /** The frame of the transmission in progress is followed by the wait for its
@@ -418,30 +419,45 @@ static void _ack_done(ieee802154_dev_t *dev, bool sent)
 }
 
 /*
- * Submits the transmission of the frame of the upper layer. RX must have
- * ended before, only one radio operation command runs at a time. With CCA a
- * frame that is being received counts as a busy channel and is left alone.
+ * Submits the transmission of the frame of the upper layer, after a CCA if
+ * `cca` is set.
  *
- * Returns 0 if the RF Core took the commands, 1 if a frame is being received
- * or has just been received and nothing was started, and a negative errno on
- * error.
+ * The CCA is the one of the receiver while it runs, see
+ * cc26x2_cc13x2_rf_rx_cca(): on a busy channel RX is left alone, and so it
+ * is while a frame is being received. This is how the RF Core does CSMA-CA
+ * in its IEEE 802.15.4 mode. Only if the receiver is off the RF Core senses
+ * the carrier with a command of its own before the frame.
+ *
+ * RX must have ended before anything is submitted, only one radio operation
+ * command runs at a time.
+ *
+ * Returns 0 if the RF Core took the commands, 1 if the channel is busy or a
+ * frame has just been received, and nothing was started, and a negative
+ * errno on error.
  */
-static int _tx_submit(void)
+static int _tx_submit(bool cca)
 {
     int res;
 
-    if (!_tx_cca) {
+    _tx_cca = false;
+    if (!cca) {
         _rx_abort();
     }
-    else if (_rx_stop_unless_receiving() != 0) {
-        return 1;
-    }
-    else if (cc26x2_cc13x2_rf_rx_next() != NULL) {
-        /* A frame has just come in and its interrupt is still to be served:
-         * it may need its ACK now. A transmission would hold that ACK back
-         * until the sender has given up and sent the frame again. */
-        _restore_rx();
-        return 1;
+    else {
+        res = cc26x2_cc13x2_rf_rx_cca();
+        if ((res > 0) || (_rx_stop_unless_receiving() != 0)) {
+            return 1;
+        }
+        if (cc26x2_cc13x2_rf_rx_next() != NULL) {
+            /* A frame has just come in and its interrupt is still to be
+             * served: it may need its ACK now. A transmission would hold
+             * that ACK back until the sender has given up and sent the
+             * frame again. */
+            _restore_rx();
+            return 1;
+        }
+        /* without a running receiver: carrier sense before the frame */
+        _tx_cca = (res < 0);
     }
 
     _tx_state = TX_STATE_TX;
@@ -509,7 +525,7 @@ static void _csma_attempt(ieee802154_dev_t *dev)
     }
     _csma_due = false;
 
-    int res = _tx_submit();
+    int res = _tx_submit(true);
 
     if (res > 0) {
         _csma_busy(dev);
@@ -845,7 +861,6 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
             unsigned key = irq_disable();
 
             _tx_result = -EAGAIN;
-            _tx_cca = true;
             _tx_wait_ack = _tx_ack_req;
             _tx_frame_pending = false;
             _state = STATE_TX;
@@ -869,13 +884,12 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         }
 
         _tx_result = -EAGAIN;
-        _tx_cca = (_csma_conf.retries == 0);
         _tx_wait_ack = _tx_ack_req;
         _tx_frame_pending = false;
 
-        res = _tx_submit();
+        res = _tx_submit(_csma_conf.retries == 0);
         if (res > 0) {
-            /* a frame is being received: a busy channel */
+            /* a busy channel, or a frame is being received */
             _tx_result = -EBUSY;
             _state = STATE_TX;
             dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
@@ -954,14 +968,25 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         if ((_tx_state == TX_STATE_TX) || _csma_active) {
             return -EBUSY;
         }
-        /* the carrier sense is a radio operation command too, RX must have
-         * ended before. During the reception of a frame the channel is
-         * busy without looking, and so it is until its ACK has been sent. */
-        if (_ack_pending() || (_rx_stop_unless_receiving() != 0)) {
+        /* While the receiver runs the CCA is its own, see
+         * cc26x2_cc13x2_rf_rx_cca(). The channel is also busy during the
+         * reception of a frame, which may be below the threshold, and until
+         * its ACK has been sent. RX goes on in all these cases. */
+        res = _ack_pending() ? 1 : cc26x2_cc13x2_rf_rx_cca();
+        if ((res > 0) || (_rx_stop_unless_receiving() != 0)) {
             _cca_result = CCA_RESULT_BUSY;
             dev->cb(dev, IEEE802154_RADIO_CONFIRM_CCA);
             return 0;
         }
+        if (res == 0) {
+            /* clear; the check for a reception has ended RX */
+            _cca_result = CCA_RESULT_IDLE;
+            dev->cb(dev, IEEE802154_RADIO_CONFIRM_CCA);
+            _restore_rx();
+            return 0;
+        }
+        /* The receiver is off: the RF Core senses the carrier with a radio
+         * operation command of its own. */
         _state = STATE_IDLE;
         _cca_result = CCA_RESULT_NONE;
         _cca_pending = true;

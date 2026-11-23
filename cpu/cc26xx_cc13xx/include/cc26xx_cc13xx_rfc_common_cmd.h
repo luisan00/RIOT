@@ -33,6 +33,8 @@ extern "C" {
 #define RFC_CMD_ABORT (0x0401) /**< End the running command as soon as
                                     possible */
 #define RFC_CMD_STOP  (0x0402) /**< Stop a running command gracefully */
+#define RFC_CMD_GET_RSSI (0x0403) /**< Read the RSSI of the running receiver,
+                                       returned in byte 2 of CMDSTA */
 /** @} */
 
 /**

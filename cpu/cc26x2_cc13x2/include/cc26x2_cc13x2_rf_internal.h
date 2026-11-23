@@ -666,6 +666,23 @@ int cc26x2_cc13x2_rf_rx_stop_unless_receiving(void);
 bool cc26x2_cc13x2_rf_rx_has_ended(void);
 
 /**
+ * @brief   Clear channel assessment by the receiver that is running
+ *
+ * Reads the RSSI of the receiver for the CCA duration and compares it with
+ * the threshold set with @ref cc26x2_cc13x2_rf_set_cca_threshold. RX is not
+ * touched, so a frame whose preamble is the energy on the channel is still
+ * received. It takes up to the CCA duration, 160 us, and a little more
+ * right after RX was started.
+ *
+ * @return  1 if the channel is busy
+ * @return  0 if the channel is clear
+ * @return  -ENODEV if RX is not running or gave no RSSI: the channel has to
+ *          be assessed with @ref cc26x2_cc13x2_rf_request_cca or with the
+ *          CCA of @ref cc26x2_cc13x2_rf_request_transmit instead
+ */
+int cc26x2_cc13x2_rf_rx_cca(void);
+
+/**
  * @brief   A frame the RF Core has received and that was not looked at yet
  *
  * The caller either keeps it with @ref cc26x2_cc13x2_rf_rx_keep or gives the
