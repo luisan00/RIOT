@@ -7,15 +7,24 @@
 #pragma once
 
 /**
- * @defgroup        cpu_cc26x2_cc13x2_rf CC13x2 sub-GHz IEEE 802.15.4g radio
+ * @defgroup        cpu_cc26x2_cc13x2_rf CC13x2 IEEE 802.15.4 radio
  * @ingroup         cpu_cc26x2_cc13x2
  * @ingroup         drivers_netdev
- * @brief           Driver for the sub-GHz radio of the CC1312R and CC1352
- *                  MCUs, for the IEEE 802.15.4 radio HAL
+ * @brief           Driver for the radio of the CC1312R and CC1352 MCUs, for
+ *                  the IEEE 802.15.4 radio HAL
  *
- * The driver implements the MR-FSK PHY of IEEE 802.15.4g (SUN FSK) on top of
- * the proprietary mode of the RF Core. Boards select it as `netdev_default`;
- * with GNRC it runs below the SubMAC (`netdev_ieee802154_submac`).
+ * The RF Core of these MCUs works in one band at a time, and the driver has
+ * a variant for each one, chosen when the application is built:
+ *
+ * - Sub-GHz, the default: the MR-FSK PHY of IEEE 802.15.4g (SUN FSK), on top
+ *   of the proprietary mode of the RF Core.
+ * - 2.4 GHz, with the module `cc26x2_cc13x2_rf_24ghz`, on the CC1352 only:
+ *   the O-QPSK PHY, on top of the IEEE 802.15.4 mode of the RF Core. See
+ *   "The 2.4 GHz band" below.
+ *
+ * Boards select the driver as `netdev_default`; with GNRC it runs below the
+ * SubMAC (`netdev_ieee802154_submac`). What follows up to that section is
+ * about the sub-GHz variant.
  *
  * ## Operating modes
  *
@@ -75,7 +84,30 @@
  * - The backoffs and retries of CSMA-CA and the retransmissions, which the
  *   SubMAC does
  * - 4-FSK, FEC and mode switch
- * - The 2.4 GHz band of the CC1352
+ *
+ * ## The 2.4 GHz band
+ *
+ * `USEMODULE += cc26x2_cc13x2_rf_24ghz` builds the driver for the O-QPSK PHY
+ * of the 2.4 GHz band, 250 kbit/s on channels 11 to 26, instead of the
+ * sub-GHz one. The RF Core does most of the MAC timing by itself in this
+ * mode, and the driver passes that on:
+ *
+ * - Address filtering and automatic ACK frames, sent 192 us after the frame
+ * - CSMA-CA with its backoffs before a transmission, or a single CCA, or
+ *   none, as set with `set_csma_params` of the radio HAL
+ * - Reception of the ACK of a transmitted frame and retransmissions; the
+ *   number of retransmissions is reported
+ * - CCA modes 1, 2 and 3 of the standard. The channel also counts as busy
+ *   while a frame is being received, and that frame is not interrupted
+ * - Interframe spacing after a transmission
+ * - LQI from the correlation value of the RF Core, RSSI
+ * - TX power from the 2.4 GHz PA table of the board, up to 5 dBm
+ * - Promiscuous mode
+ *
+ * The SubMAC therefore leaves CSMA-CA and retransmissions to the radio.
+ * ACK frames are not passed to the upper layer.
+ *
+ * Changing between the two bands at run time is not supported.
  *
  * The driver has been tested on the CC1352P1 LaunchPad only.
  *

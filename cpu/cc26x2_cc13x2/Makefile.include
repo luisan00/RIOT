@@ -9,3 +9,6 @@ include ${RIOTCPU}/cc26xx_cc13xx/Makefile.include
 include $(RIOTMAKE)/arch/cortexm.inc.mk
 
 INCLUDES += -I$(RIOTCPU)/cc26x2_cc13x2/include/vendor
+
+# variant of the radio driver for the 2.4 GHz band
+PSEUDOMODULES += cc26x2_cc13x2_rf_24ghz

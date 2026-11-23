@@ -214,6 +214,23 @@ typedef struct {
 #define RFC_PWR ((rfc_pwr_regs_t *) (RFC_PWR_BASE)) /**< RFC_PWR register bank */
 #define RFC_PWR_NONBUF ((rfc_pwr_regs_t *) (RFC_PWR_BASE_NONBUF)) /**< RFC_PWR register bank */
 
+/**
+ * @brief   RFC_RAT registers
+ */
+typedef struct {
+    reg32_t __reserved; /**< Reserved */
+    reg32_t RATCNT; /**< Radio Timer Counter Value */
+} rfc_rat_regs_t;
+
+/**
+ * @ingroup cpu_specific_peripheral_memory_map
+ * @{
+ */
+#define RFC_RAT_BASE (PERIPH_BASE + 0x43000) /**< RFC_RAT base address */
+/** @} */
+
+#define RFC_RAT ((rfc_rat_regs_t *) (RFC_RAT_BASE)) /**< RFC_RAT register bank */
+
 #ifdef __cplusplus
 }
 #endif
