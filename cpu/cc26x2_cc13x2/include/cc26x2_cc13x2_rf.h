@@ -58,6 +58,8 @@
  *
  * - Automatic transmission of ACK frames, address filtering, promiscuous mode
  * - CCA by energy detection
+ * - LQI, derived from the RSSI of the frame: 0 at -100 dBm or less, 255 at
+ *   -20 dBm or more
  * - TX power from the PA table of the board (`rf_conf.h`)
  * - The IEEE address of the device as long address of the network interface,
  *   see cc26x2_cc13x2_rf_get_eui64()
@@ -67,7 +69,6 @@
  * Not implemented:
  *
  * - CSMA-CA and retransmissions in the radio (the SubMAC does both)
- * - LQI, which is reported as 0
  * - 4-FSK, FEC and mode switch
  * - The 2.4 GHz band of the CC1352
  *

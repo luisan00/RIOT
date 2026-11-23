@@ -450,13 +450,7 @@ extern "C" {
  *
  * @note    If this value is updated @ref rf_cmd_prop_rx_adv MUST
  *          be updated accordingly. For now it only includes the
- *          RSSI which is all we need.
- *
- *          The status doesn't include the LQI! The LQI of the last
- *          packet received MUST be read from an RF Core register,
- *          However, it requires some shenanigans to correctly read
- *          it for the packet we want, e.g. reading it at the ISR
- *          for `CPE_IRQ_RX_ENTRY_DONE` and saving it elsewhere.
+ *          RSSI which is all we need: the LQI is derived from it.
  */
 #define CC26X2_CC13X2_RF_RX_STATUS_LEN 1
 
