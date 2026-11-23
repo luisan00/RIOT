@@ -566,18 +566,16 @@ extern rfc_cmd_prop_tx_adv_t rf_cmd_prop_tx_adv;
 extern rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_adv;
 
 /**
+ * @brief   CMD_PROP_RX_ADV for the ACK of a transmitted frame
+ */
+extern rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_ack;
+
+/**
  * @brief   CMD_PROP_CS
  *
  * Proprietary Mode Carrier Sense Command
  */
 extern rfc_cmd_prop_cs_t rf_cmd_prop_cs;
-
-/**
- * @brief   CMD_CLEAR_RX
- *
- * Clear the RX queue
- */
-extern rfc_cmd_clear_rx_t rf_cmd_clear_rx;
 
 /**
  * @brief   CMD_SET_TX_POWER
@@ -668,15 +666,53 @@ int cc26x2_cc13x2_rf_rx_stop_unless_receiving(void);
 bool cc26x2_cc13x2_rf_rx_has_ended(void);
 
 /**
- * @brief   Receive a packet from the packet queue.
+ * @brief   A frame the RF Core has received and that was not looked at yet
  *
- * @pre An ISR should inform that a packet is ready in the
- * queue.
+ * The caller either keeps it with @ref cc26x2_cc13x2_rf_rx_keep or gives the
+ * entry back by setting its status to #RFC_DATA_ENTRY_PENDING.
  *
- * @return NULL if no packet exists on the queue.
- * @return pointer to packet on success.
+ * @return  the entry of the frame
+ * @return  NULL if there is none
+ */
+rfc_data_entry_general_t *cc26x2_cc13x2_rf_rx_next(void);
+
+/**
+ * @brief   Keep a received frame until it is read
+ *
+ * The frame joins the frames that wait to be read, after the ones that are
+ * already there.
+ *
+ * @param[in]   entry   entry from @ref cc26x2_cc13x2_rf_rx_next
+ *
+ * @return  false if no more frames can be kept; the entry is not changed
+ */
+bool cc26x2_cc13x2_rf_rx_keep(rfc_data_entry_general_t *entry);
+
+/**
+ * @brief   The oldest of the frames that wait to be read
+ *
+ * @return  NULL if no frame waits
+ * @return  the entry of the frame
  */
 rfc_data_entry_general_t *cc26x2_cc13x2_rf_recv(void);
+
+/**
+ * @brief   Give the entry of the oldest frame that waits to be read back to
+ *          the RX queue
+ */
+void cc26x2_cc13x2_rf_rx_release(void);
+
+/**
+ * @brief   Give the entry of the newest frame that waits to be read back to
+ *          the RX queue
+ */
+void cc26x2_cc13x2_rf_rx_release_last(void);
+
+/**
+ * @brief   Give the entries of all the frames that wait to be read back to
+ *          the RX queue
+ */
+void cc26x2_cc13x2_rf_rx_release_all(void);
 
 /**
  * @brief   Write PDSU into transmit buffer
@@ -687,31 +723,59 @@ rfc_data_entry_general_t *cc26x2_cc13x2_rf_recv(void);
 int cc26x2_cc13x2_rf_write(const iolist_t *iolist);
 
 /**
+ * @brief   Write the PSDU of an ACK frame into the transmit buffer of the
+ *          ACKs
+ *
+ * The frame written with @ref cc26x2_cc13x2_rf_write is not touched: it may
+ * be waiting for a retransmission.
+ *
+ * @return 0 on success
+ * @return negative errno value on error.
+ */
+int cc26x2_cc13x2_rf_write_ack(const iolist_t *iolist);
+
+/**
  * @brief   Request the RF Core to transmit our packet.
  *
  * @pre @ref cc26x2_cc13x2_rf_write MUST have been called.
  *
- * @param[in]   cca     perform a CCA first and only transmit if the channel
- *                      is clear
+ * @param[in]   cca         perform a CCA first and only transmit if the
+ *                          channel is clear
+ * @param[in]   wait_ack    receive after the frame, for the time an ACK has
+ *                          to come in; what is received is found with
+ *                          @ref cc26x2_cc13x2_rf_rx_next
  *
  * @return  0 if the RF Core accepted the request
  * @return  -EBUSY if another radio operation is running
  * @return  -EIO on any other error
  */
-int cc26x2_cc13x2_rf_request_transmit(bool cca);
+int cc26x2_cc13x2_rf_request_transmit(bool cca, bool wait_ack);
+
+/**
+ * @brief   Request the RF Core to transmit the ACK frame, without CCA
+ *
+ * @pre @ref cc26x2_cc13x2_rf_write_ack MUST have been called.
+ *
+ * @return  0 if the RF Core accepted the request
+ * @return  -EBUSY if another radio operation is running
+ * @return  -EIO on any other error
+ */
+int cc26x2_cc13x2_rf_request_transmit_ack(void);
 
 /**
  * @brief   State of the transmission requested with
  *          @ref cc26x2_cc13x2_rf_request_transmit
  *
- * @param[in]   cca     the value given to the request
+ * @param[in]   cca         the value given to the request
+ * @param[in]   wait_ack    the value given to the request
  *
- * @return  0 if the frame was sent
+ * @return  0 if the frame was sent and, with @p wait_ack, the wait for its
+ *          ACK is over
  * @return  -EAGAIN if the transmission has not ended
  * @return  -EBUSY if the channel was busy and nothing was sent
  * @return  -EIO on error
  */
-int cc26x2_cc13x2_rf_tx_chain_state(bool cca);
+int cc26x2_cc13x2_rf_tx_chain_state(bool cca, bool wait_ack);
 
 /**
  * @brief   Time to wait after a frame was received before the transmission

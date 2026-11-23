@@ -66,6 +66,16 @@
  * ## Features
  *
  * - Automatic transmission of ACK frames, address filtering, promiscuous mode
+ * - Reception of the ACK of a transmitted frame: the RF Core goes on to
+ *   receive after the frame and the result of the transmission tells whether
+ *   the ACK came. The wait ends when no sync word was found in the time the
+ *   ACK of an AT86RF215, with its long preamble, takes to get there, from
+ *   3.9 to 5.7 ms depending on the symbol rate. ACK frames are not passed to
+ *   the upper layer
+ * - A frame that comes in instead of that ACK, from a node that was sending
+ *   at the same time, is not lost: it is acknowledged and kept, the
+ *   transmission is reported as not acknowledged, and the frame is indicated
+ *   when the upper layer sets the radio to RX again
  * - CCA by energy detection, on request and before a transmission: the RF
  *   Core only transmits if the channel was clear for the CCA duration
  * - A frame that is being received is not interrupted by a CCA, by a

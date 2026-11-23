@@ -88,13 +88,11 @@ static bool _rx_enabled;
 
 static struct {
     bool promisc  : 1; /**< whether the device is in promiscuous mode */
-    bool ack_only : 1; /**< whether only ACK frames should be indicated */
     bool auto_ack : 1; /**< whether the radio sends ACKs automatically */
     bool ifs      : 1; /**< whether the radio is in IFS mode */
     bool cca_send : 1; /**< whether a CCA is done before a transmission */
 } _cfg = {
     .promisc  = false,
-    .ack_only = false,
     .auto_ack = true,
     .ifs      = false,
     .cca_send = true,
@@ -124,6 +122,23 @@ static volatile uint8_t _tx_state;
 /** The transmission in progress was requested with a CCA before it */
 static bool _tx_cca;
 
+/** The frame of the transmission in progress is followed by the wait for its
+ *  ACK, see rf_cmd_prop_rx_ack */
+static bool _tx_wait_ack;
+
+/** The frame given to _write() requests an ACK */
+static bool _tx_ack_req;
+
+/** Sequence number of the frame given to _write() */
+static uint8_t _tx_seq;
+
+/** Frame Pending field of the ACK of the last transmission */
+static bool _tx_frame_pending;
+
+/** The result of a transmission is known but not reported yet: a frame came
+ *  instead of its ACK and is acknowledged first, see _tx_done() */
+static volatile bool _tx_report;
+
 /**
  * RX was asked to stop while a frame was coming in. It ends by itself after
  * the frame and is started again from the interrupt of the end of the
@@ -132,6 +147,7 @@ static bool _tx_cca;
 static volatile bool _rx_stopping;
 
 static void _rx_abort(void);
+static bool _ack_pending(void);
 
 static volatile int _tx_result = -EAGAIN;
 
@@ -147,14 +163,34 @@ static inline bool _is_ack_frame(const uint8_t *psdu)
     return (psdu[0] & IEEE802154_FCF_TYPE_MASK) == IEEE802154_FCF_TYPE_ACK;
 }
 
-static void _handle_rx(ieee802154_dev_t *dev)
+/* Whether an ACK frame is the one of the frame given to _write() */
+static bool _is_tx_ack(const rfc_data_entry_general_t *entry)
 {
-    rfc_data_entry_general_t *entry = cc26x2_cc13x2_rf_recv();
+    uint8_t psdu[ACK_PSDU_LEN];
 
-    if (entry == NULL) {
-        return;
+    if (_entry_len(entry) != ACK_PSDU_LEN + CC26X2_CC13X2_RF_RX_STATUS_LEN) {
+        return false;
     }
+    cc26x2_cc13x2_rf_copy_psdu(psdu, (&entry->data) + sizeof(uint16_t), sizeof(psdu));
+    if (!_is_ack_frame(psdu) || (psdu[2] != _tx_seq)) {
+        return false;
+    }
+    _tx_frame_pending = psdu[0] & IEEE802154_FCF_FRAME_PEND;
 
+    return true;
+}
+
+/*
+ * Takes or drops a frame the RF Core has received.
+ *
+ * A frame that is taken is kept until the upper layer reads it. It is
+ * indicated at once if the upper layer has the radio in RX, after its ACK if
+ * it requests one, and otherwise when the radio is set to RX again: a frame
+ * can come in while the ACK of a frame of ours is awaited, when the upper
+ * layer is in the middle of that transmission and cannot take it.
+ */
+static void _rx_entry(ieee802154_dev_t *dev, rfc_data_entry_general_t *entry)
+{
     /* Reject malformed entries before accessing the MHR. */
     uint16_t pktlen = _entry_len(entry);
     if (pktlen < CC26X2_CC13X2_RF_RX_STATUS_LEN + IEEE802154_MIN_FRAME_LEN ||
@@ -175,48 +211,52 @@ static void _handle_rx(ieee802154_dev_t *dev)
     }
     cc26x2_cc13x2_rf_copy_psdu(psdu, (&entry->data) + sizeof(uint16_t), mhr_len);
 
-    /* Pass the PSDU (the MHR) to the address filter. */
-    bool l2filter_passed = cc26x2_cc13x2_rf_l2_filter(psdu);
-    bool is_ack = _is_ack_frame(psdu);
-    bool is_ack_req = psdu[0] & IEEE802154_FCF_ACK_REQ;
+    bool send_ack = false;
 
-    if (_cfg.promisc) {
+    if (!_cfg.promisc) {
+        /* An ACK frame is not for the upper layer: the one of a frame of
+         * ours is taken by the transmission, see _tx_done(). Anything else
+         * goes through the address filter. */
+        if (_is_ack_frame(psdu) || !cc26x2_cc13x2_rf_l2_filter(psdu)) {
+            entry->status = RFC_DATA_ENTRY_PENDING;
+            return;
+        }
+        send_ack = (psdu[0] & IEEE802154_FCF_ACK_REQ) && _cfg.auto_ack;
+    }
+
+    /* Without room to keep it, or with the ACK of another frame still due,
+     * the frame is dropped without ACK: its sender sends it again. */
+    if ((send_ack && _ack_pending()) || !cc26x2_cc13x2_rf_rx_keep(entry)) {
+        entry->status = RFC_DATA_ENTRY_PENDING;
+        return;
+    }
+
+    if (send_ack) {
+        /* Copy the sequence number to the ACK frame we'll send. */
+        _ack[2] = psdu[2];
+
+        /* To send the ACK we need to stop receiving. */
+        _rx_abort();
+
+        /* The ACK goes out AIFS after the frame. Until then every request
+         * that needs the radio is refused, see _ack_pending(). The frame is
+         * indicated after its ACK. */
+        _tx_state = TX_STATE_ACK_WAIT;
+        timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK,
+                  cc26x2_cc13x2_rf_ack_delay_us());
+        timer_start(CC26X2_CC13X2_RF_TIMER);
+    }
+    else if (_rx_enabled) {
         dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
     }
-    else if (_cfg.ack_only) {
-        if (is_ack) {
-            dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
-        }
-        else {
-            entry->status = RFC_DATA_ENTRY_PENDING;
-        }
-    }
-    /* If the L2 filter passes, check if the frame should be indicated
-     * directly or if the driver should send an ACK frame before the
-     * indication. */
-    else if (l2filter_passed) {
-        if (is_ack_req && _cfg.auto_ack) {
-            /* Copy the sequence number to the ACK frame we'll send. */
-            _ack[2] = psdu[2];
+}
 
-            /* To send the ACK we need to stop receiving. */
-            _rx_abort();
+static void _handle_rx(ieee802154_dev_t *dev)
+{
+    rfc_data_entry_general_t *entry;
 
-            /* The ACK goes out AIFS after the frame. Until then every
-             * request that needs the radio is refused, see _ack_pending(). */
-            _tx_state = TX_STATE_ACK_WAIT;
-            timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK,
-                      cc26x2_cc13x2_rf_ack_delay_us());
-            timer_start(CC26X2_CC13X2_RF_TIMER);
-        }
-        else {
-            /* The frame doesn't request an ACK or automatic ACKs are
-             * disabled. */
-            dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
-        }
-    }
-    else {
-        entry->status = RFC_DATA_ENTRY_PENDING;
+    while ((entry = cc26x2_cc13x2_rf_rx_next()) != NULL) {
+        _rx_entry(dev, entry);
     }
 }
 
@@ -281,23 +321,43 @@ static void _rx_abort(void)
 
 /*
  * Gives up the ACK of a received frame that is still waiting for its AIFS,
- * for a forced transition to idle. The frame is dropped: its sender gets no
- * ACK and sends it again. An ACK that is already on the air goes on, and its
- * frame is indicated when it ends.
+ * for a forced transition to idle. The frame, the last one that was kept,
+ * is dropped: its sender gets no ACK and sends it again. An ACK that is
+ * already on the air goes on, and its frame is indicated later.
  */
 static void _ack_cancel(void)
 {
     if (_tx_state == TX_STATE_ACK_WAIT) {
-        rfc_data_entry_general_t *entry = cc26x2_cc13x2_rf_recv();
-
         timer_clear(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK);
         if (!_cfg.ifs) {
             timer_stop(CC26X2_CC13X2_RF_TIMER);
         }
         _tx_state = TX_STATE_IDLE;
-        if (entry != NULL) {
-            entry->status = RFC_DATA_ENTRY_PENDING;
-        }
+        _tx_report = false;
+        cc26x2_cc13x2_rf_rx_release_last();
+    }
+}
+
+/*
+ * The ACK of a received frame is out, or could not be sent: the frame is
+ * indicated either way, its sender retransmits if it misses the ACK. If the
+ * frame came while the ACK of a frame of ours was awaited, the result of
+ * that transmission is reported now, and the frame stays kept until the
+ * upper layer sets the radio to RX.
+ */
+static void _ack_done(ieee802154_dev_t *dev, bool sent)
+{
+    _tx_state = TX_STATE_IDLE;
+    _restore_rx();
+    if (sent) {
+        _set_ifs_timer();
+    }
+    if (_tx_report) {
+        _tx_report = false;
+        dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
+    }
+    if (_rx_enabled) {
+        dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
     }
 }
 
@@ -336,32 +396,60 @@ static int _rx_stop_unless_receiving(void)
     return res;
 }
 
-/* CMD_PROP_TX_ADV has ended: PROP_DONE_OK (0x3400) if the frame was sent,
- * any other status is an error (SWCU185G, Table 25-184) */
+/*
+ * CMD_PROP_TX_ADV has ended: PROP_DONE_OK (0x3400) if the frame was sent,
+ * any other status is an error (SWCU185G, Table 25-184). If the frame
+ * requests an ACK the receive command chained to it has ended too, and what
+ * it received is looked at here:
+ *
+ * - The ACK of the frame: the transmission succeeded.
+ * - Nothing, or another ACK: -ETIMEDOUT, the ACK did not come.
+ * - Another frame: the ACK did not come either, the other node was sending
+ *   instead of listening. Its frame is taken as any other. If both nodes
+ *   dropped what they receive while they wait for an ACK, neither would
+ *   ever get a frame through as long as both have something to send.
+ */
 static void _tx_done(ieee802154_dev_t *dev)
 {
-    int res = cc26x2_cc13x2_rf_tx_chain_state(_tx_cca);
+    int res = cc26x2_cc13x2_rf_tx_chain_state(_tx_cca, _tx_wait_ack);
     bool sent = (res == 0);
     uint8_t tx_state = _tx_state;
 
     _tx_state = TX_STATE_IDLE;
 
     if (tx_state == TX_STATE_TX_ACK) {
-        /* The received frame is indicated whether or not its ACK went out:
-         * the sender retransmits if it misses the ACK. */
-        _restore_rx();
-        _set_ifs_timer();
-        dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
+        _ack_done(dev, true);
+        return;
     }
-    else {
-        /* -EBUSY: the channel was busy and nothing was sent. The radio stays
-         * idle, as the HAL asks: the SubMAC tries again after a backoff. */
-        _tx_result = res;
-        if (sent) {
-            _set_ifs_timer();
+
+    if (sent && _tx_wait_ack) {
+        rfc_data_entry_general_t *entry;
+
+        res = -ETIMEDOUT;
+        while ((entry = cc26x2_cc13x2_rf_rx_next()) != NULL) {
+            if (_is_tx_ack(entry)) {
+                res = 0;
+                entry->status = RFC_DATA_ENTRY_PENDING;
+            }
+            else {
+                _rx_entry(dev, entry);
+            }
         }
-        dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
     }
+
+    /* -EBUSY: the channel was busy and nothing was sent. The radio stays
+     * idle, as the HAL asks: the SubMAC tries again after a backoff. */
+    _tx_result = res;
+    if (_tx_state == TX_STATE_ACK_WAIT) {
+        /* a frame that came instead of the ACK is acknowledged first, the
+         * upper layer would start the next attempt on top of that */
+        _tx_report = true;
+        return;
+    }
+    if (sent) {
+        _set_ifs_timer();
+    }
+    dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
 }
 
 /* CMD_PROP_CS has ended: PROP_DONE_IDLE (0x3407) for a clear channel,
@@ -409,7 +497,11 @@ void cc26x2_cc13x2_rfc_isr(void)
     if ((RFC_DBELL->RFCPEIFG & CPE_IRQ_RX_ENTRY_DONE) &&
         (RFC_DBELL->RFCPEIEN & CPE_IRQ_RX_ENTRY_DONE)) {
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_RX_ENTRY_DONE;
-        _handle_rx(dev);
+        /* what comes in while the ACK of a frame is awaited is looked at
+         * when the wait ends, see _tx_done() */
+        if (_tx_state != TX_STATE_TX) {
+            _handle_rx(dev);
+        }
     }
 
     if ((RFC_DBELL->RFCPEIFG & CPE_IRQ_LAST_COMMAND_DONE) &&
@@ -419,7 +511,7 @@ void cc26x2_cc13x2_rfc_isr(void)
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
 
         if (_tx_running() &&
-            (cc26x2_cc13x2_rf_tx_chain_state(_tx_cca) != -EAGAIN)) {
+            (cc26x2_cc13x2_rf_tx_chain_state(_tx_cca, _tx_wait_ack) != -EAGAIN)) {
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
             _tx_done(dev);
         }
@@ -445,9 +537,26 @@ static int _write(ieee802154_dev_t *dev, const iolist_t *iolist)
 {
     (void)dev;
 
+    /* The Frame Control field tells whether an ACK has to be awaited after
+     * the frame, and the sequence number which one. */
+    uint8_t mhr[3] = { 0 };
+    size_t len = 0;
+
+    for (const iolist_t *iol = iolist; iol && (len < sizeof(mhr)); iol = iol->iol_next) {
+        const uint8_t *base = iol->iol_base;
+
+        for (size_t i = 0; (i < iol->iol_len) && (len < sizeof(mhr)); i++) {
+            mhr[len++] = base[i];
+        }
+    }
+    _tx_ack_req = (len == sizeof(mhr)) && (mhr[0] & IEEE802154_FCF_ACK_REQ);
+    _tx_seq = mhr[2];
+
     return cc26x2_cc13x2_rf_write(iolist);
 }
 
+/* Reads the oldest of the frames that wait and closes its reception: the
+ * entry goes back to the RX queue whatever the result is. */
 static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
                  ieee802154_rx_info_t *info)
 {
@@ -455,6 +564,7 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
     rfc_data_entry_general_t *entry;
     uint8_t *psdu;
     uint16_t pktlen;
+    int res;
 
     /* shouldn't be null as we informed about a packet */
     entry = cc26x2_cc13x2_rf_recv();
@@ -464,26 +574,22 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
 
     /* first two bytes are PSDU length */
     pktlen = _entry_len(entry);
-    if (pktlen < CC26X2_CC13X2_RF_RX_STATUS_LEN ||
-        pktlen > IEEE802154G_FRAME_LEN_MAX + CC26X2_CC13X2_RF_RX_STATUS_LEN) {
-        entry->status = RFC_DATA_ENTRY_PENDING;
-        return -ENOENT;
-    }
-    pktlen -= CC26X2_CC13X2_RF_RX_STATUS_LEN;
-    DEBUG("[cc26x2_cc13x2_rf]: reading packet of length %i\n", pktlen);
-
     psdu = (&entry->data) + sizeof(uint16_t);
 
-    if (buf == NULL) {
-        entry->status = RFC_DATA_ENTRY_PENDING;
-        return 0;
+    if (pktlen < CC26X2_CC13X2_RF_RX_STATUS_LEN ||
+        pktlen > IEEE802154G_FRAME_LEN_MAX + CC26X2_CC13X2_RF_RX_STATUS_LEN) {
+        res = -ENOENT;
     }
-
-    if (max_size < pktlen) {
+    else if (buf == NULL) {
+        res = 0;
+    }
+    else if (max_size < (size_t)(pktlen - CC26X2_CC13X2_RF_RX_STATUS_LEN)) {
         DEBUG("[cc26x2_cc13x2_rf]: buffer is too small\n");
-        return -ENOBUFS;
+        res = -ENOBUFS;
     }
     else {
+        pktlen -= CC26X2_CC13X2_RF_RX_STATUS_LEN;
+        DEBUG("[cc26x2_cc13x2_rf]: reading packet of length %i\n", pktlen);
         if (info != NULL) {
             /* RSSI resides at the end of the PSDU */
             int8_t rssi = (int8_t)psdu[pktlen];
@@ -494,10 +600,11 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
             info->timestamp = 0;
         }
         cc26x2_cc13x2_rf_copy_psdu(buf, psdu, pktlen);
-        entry->status = RFC_DATA_ENTRY_PENDING;
+        res = pktlen;
     }
+    cc26x2_cc13x2_rf_rx_release();
 
-    return pktlen;
+    return res;
 }
 
 static int _len(ieee802154_dev_t *dev)
@@ -511,7 +618,6 @@ static int _len(ieee802154_dev_t *dev)
     uint16_t pktlen = _entry_len(entry);
     if (pktlen < CC26X2_CC13X2_RF_RX_STATUS_LEN ||
         pktlen > IEEE802154G_FRAME_LEN_MAX + CC26X2_CC13X2_RF_RX_STATUS_LEN) {
-        entry->status = RFC_DATA_ENTRY_PENDING;
         return -ENOENT;
     }
 
@@ -528,8 +634,10 @@ static int _off(ieee802154_dev_t *dev)
     _rx_enabled = false;
     _rx_stopping = false;
     _cca_pending = false;
+    _tx_report = false;
     _tx_state = TX_STATE_IDLE;
     _state = STATE_IDLE;
+    cc26x2_cc13x2_rf_rx_release_all();
 
     cc26x2_cc13x2_rf_off();
 
@@ -568,11 +676,13 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
 
         _tx_result = -EAGAIN;
         _tx_cca = _cfg.cca_send;
+        _tx_wait_ack = _tx_ack_req;
+        _tx_frame_pending = false;
         _tx_state = TX_STATE_TX;
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
         RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
 
-        if ((res = cc26x2_cc13x2_rf_request_transmit(_tx_cca)) != 0) {
+        if ((res = cc26x2_cc13x2_rf_request_transmit(_tx_cca, _tx_wait_ack)) != 0) {
             DEBUG("[cc26x2_cc13x2_rf]: failed to transmit\n");
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
             _tx_state = TX_STATE_IDLE;
@@ -598,12 +708,19 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
             irq_restore(key);
         }
         _tx_state = TX_STATE_IDLE;
-        if ((res = cc26x2_cc13x2_rf_rx_start()) != 0) {
+        /* -ENOBUFS: every RX entry holds a frame that waits to be read.
+         * RX is started when the upper layer has read one and asks again. */
+        res = cc26x2_cc13x2_rf_rx_start();
+        if ((res != 0) && (res != -ENOBUFS)) {
             _rx_enabled = false;
             _state = STATE_IDLE;
             return res;
         }
         _state = STATE_RX;
+        /* a frame that was kept while the upper layer could not take it */
+        if (cc26x2_cc13x2_rf_recv() != NULL) {
+            dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
+        }
         break;
     case IEEE802154_HAL_OP_SET_IDLE: {
         assert(ctx);
@@ -691,8 +808,17 @@ static int _confirm_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
                 info->retrans = 0;
             }
         }
+        else if (res == -ETIMEDOUT) {
+            /* the frame was sent and its ACK did not come */
+            res = 0;
+            if (info != NULL) {
+                info->status = TX_STATUS_NO_ACK;
+                info->retrans = 0;
+            }
+        }
         else if (res == 0 && info != NULL) {
-            info->status = TX_STATUS_SUCCESS;
+            info->status = _tx_frame_pending ? TX_STATUS_FRAME_PENDING
+                                             : TX_STATUS_SUCCESS;
             info->retrans = 0;
         }
         return res;
@@ -874,19 +1000,17 @@ static int _set_frame_filter_mode(ieee802154_dev_t *dev, ieee802154_filter_mode_
     switch (mode) {
         case IEEE802154_FILTER_ACCEPT:
             _cfg.promisc = false;
-            _cfg.ack_only = false;
             _cfg.auto_ack = true;
             break;
         case IEEE802154_FILTER_PROMISC:
             _cfg.promisc = true;
-            _cfg.ack_only = false;
             _cfg.auto_ack = false;
             break;
         case IEEE802154_FILTER_ACK_ONLY:
-            _cfg.promisc = false;
-            _cfg.ack_only = true;
-            _cfg.auto_ack = false;
-            break;
+            /* the radio waits for the ACK of a frame itself
+             * (IEEE802154_CAP_IRQ_ACK_TIMEOUT): the mode is not to be
+             * implemented then */
+            return -ENOTSUP;
         case IEEE802154_FILTER_SNIFFER:
             return -ENOTSUP;
         default:
@@ -903,9 +1027,6 @@ static int _get_frame_filter_mode(ieee802154_dev_t *dev,
 
     if (_cfg.promisc) {
         *mode = IEEE802154_FILTER_PROMISC;
-    }
-    else if (_cfg.ack_only) {
-        *mode = IEEE802154_FILTER_ACK_ONLY;
     }
     else {
         *mode = IEEE802154_FILTER_ACCEPT;
@@ -925,6 +1046,7 @@ void cc26x2_cc13x2_rf_hal_setup(ieee802154_dev_t *hal)
 static const ieee802154_radio_ops_t cc26x2_cc13x2_rf_ops = {
     .caps = IEEE802154_CAP_SUB_GHZ
           | IEEE802154_CAP_AUTO_ACK
+          | IEEE802154_CAP_IRQ_ACK_TIMEOUT
           | IEEE802154_CAP_IRQ_TX_DONE
           | IEEE802154_CAP_IRQ_CCA_DONE
           | IEEE802154_CAP_PHY_MR_FSK,
@@ -958,24 +1080,22 @@ static void _timer_cb(void *arg, int chan)
             .iol_len = ACK_PSDU_LEN,
         };
 
-        /* send the ACK frame */
-        cc26x2_cc13x2_rf_write(&iolist);
+        /* send the ACK frame, from its own buffer: the frame of the upper
+         * layer may be waiting for a retransmission in the other one */
+        cc26x2_cc13x2_rf_write_ack(&iolist);
 
-        /* an ACK is sent without CCA */
+        /* an ACK is sent without CCA and is not acknowledged */
         _tx_cca = false;
+        _tx_wait_ack = false;
         _tx_state = TX_STATE_TX_ACK;
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
         RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
 
-        if (cc26x2_cc13x2_rf_request_transmit(false) != 0) {
-            /* The ACK is lost. Go back to RX and indicate the frame, as
-             * after an ACK that was sent. */
+        if (cc26x2_cc13x2_rf_request_transmit_ack() != 0) {
+            /* The ACK is lost. Go on as after an ACK that was sent. */
             DEBUG("[cc26x2_cc13x2_rf]: failed to transmit the ACK\n");
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
-            _tx_state = TX_STATE_IDLE;
-            _restore_rx();
-            cc26x2_cc13x2_rf_hal->cb(cc26x2_cc13x2_rf_hal,
-                                     IEEE802154_RADIO_INDICATION_RX_DONE);
+            _ack_done(cc26x2_cc13x2_rf_hal, false);
         }
     }
     else if (chan == MAC_TIMER_CHAN_IFS) {

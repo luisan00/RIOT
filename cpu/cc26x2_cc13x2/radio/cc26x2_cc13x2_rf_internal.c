@@ -120,6 +120,17 @@
                                       CC26X2_CC13X2_RF_RX_STATUS_LEN)
 
 static uint8_t _tx_buf[TX_BUF_LEN]  __attribute__ ((aligned(4))); /**< Transmit buffer */
+/** PHR and PSDU of the frame in the transmit buffer */
+static uint16_t _tx_pkt_len;
+
+/** Transmit buffer of the ACK frames. It is not the one of the frames of the
+ *  upper layer: that frame has to stay where it is, for its retransmissions,
+ *  when a frame is received and acknowledged between two attempts. */
+static uint8_t _tx_ack_buf[ALIGN_TO_4(IEEE802154_PHY_MR_FSK_PHR_LEN +
+                                      IEEE802154_ACK_FRAME_LEN)]
+    __attribute__ ((aligned(4)));
+/** PHR and PSDU of the frame in the ACK buffer */
+static uint16_t _tx_ack_pkt_len;
 static rfc_data_queue_t _rx_queue __attribute__ ((aligned(4)));  /**< Receive data queue */
 /** Receive buffer configured as a circular buffer, e.g.: the last one points
  * to the first, each buffer contains @ref rfc_data_entry_t which is used
@@ -132,6 +143,18 @@ typedef union {
 
 static rx_buf_t _rx_buf[CONFIG_CC26X2_CC13X2_RF_RX_BUF_NUMOF]
     __attribute__ ((aligned(4)));
+
+/**
+ * Most frames that can wait to be read at a time. An entry that holds one
+ * stays Finished and out of the ring the RF Core writes to, see
+ * _rx_ring_build(), which needs one entry at least.
+ */
+#define RX_KEPT_MAX         (CONFIG_CC26X2_CC13X2_RF_RX_BUF_NUMOF - 1)
+
+/** Entries with a frame that was accepted and waits to be read, oldest
+ *  first */
+static rfc_data_entry_general_t *_rx_kept[RX_KEPT_MAX];
+static uint8_t _rx_kept_numof;
 
 /** CMD_PROP_RX_ADV was accepted by the RF Core and not stopped since */
 static bool _rx_submitted;
@@ -840,8 +863,7 @@ rfc_cmd_prop_tx_adv_t rf_cmd_prop_tx_adv =
  * - `sync_word1 = 0`: no alternative sync word.
  *
  * If no entry of the queue is free when a frame starts, the command ends
- * with PROP_ERROR_RXBUF ([TRM] Table 25-186), see
- * cc26x2_cc13x2_rf_rx_start().
+ * with PROP_ERROR_RXBUF ([TRM] Table 25-186), see _rx_ring_build().
  */
 rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_adv =
 {
@@ -900,6 +922,86 @@ rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_adv =
         .past_trig = 0
     },
     .end_time = 0,
+    .addr = 0, /* unused */
+    .queue = 0, /* set by us */
+    .output = 0 /* set by us */
+};
+
+/**
+ * CMD_PROP_RX_ADV for the ACK of a transmitted frame
+ *
+ * Chained to CMD_PROP_TX_ADV when the frame requests an ACK, so the RF Core
+ * goes from TX to RX by itself and ends the wait by itself. It is
+ * rf_cmd_prop_rx_adv with another end ([TRM] 25.10.5.4 and Table 25-186):
+ *
+ * - `repeat_ok = 0`: the command ends with PROP_DONE_OK after the first frame
+ *   with a good CRC, whatever it is. If it is not the expected ACK, that ACK
+ *   is not coming.
+ * - `end_trigger` TRIG_REL_START: if no sync word was found `end_time` after
+ *   the start of the command it ends with PROP_DONE_RXTIMEOUT. `end_type = 0`
+ *   lets a frame that is being received at that moment finish (the command
+ *   then ends with PROP_DONE_ENDED), so the time only has to reach to the
+ *   sync word of the ACK, see _ack_wait_us().
+ * - `repeat_nok = 1`: after a frame with a CRC error the search goes on until
+ *   the end trigger.
+ */
+rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_ack =
+{
+    .command_no = RFC_CMD_PROP_RX_ADV,
+    .status = RFC_IDLE,
+    .next_op = NULL,
+    .start_time = 0,
+    .start_trigger = {
+        .type = RFC_TRIG_NOW,
+        .ena_cmd = 0,
+        .trigger_no = 0,
+        .past_trig = 0
+    },
+    .condition = {
+        .rule = RFC_COND_NEVER,
+        .skip_no = 0
+    },
+    .pkt_conf = {
+        .fs_off = 0,
+        .repeat_ok = 0,
+        .repeat_nok = 1,
+        .use_crc = 1,
+        .crc_inc_sw = 0,
+        .crc_inc_hdr = 0,
+        .end_type = 0,
+        .filter_op = 1
+    },
+    .rx_conf = {
+        .auto_flush_ignored = 1,
+        .auto_flush_crc_err = 1,
+        .include_hdr = 0,
+        .include_crc = 0,
+        .append_rssi = 1,
+        .append_timestamp = 0,
+        .append_status = 0
+    },
+    .sync_word0 = SYNC_WORD,
+    .sync_word1 = 0,
+    .max_pkt_len = IEEE802154G_FRAME_LEN_MAX,
+    .hdr_conf = {
+        .num_hdr_bits = IEEE802154_PHY_MR_FSK_PHR_LEN * 8,
+        .len_pos = 0,
+        .num_len_bits = 11
+    },
+    .addr_conf = {
+        .addr_type = 0,
+        .addr_size = 0,
+        .addr_pos = 0,
+        .num_addr = 0
+    },
+    .len_offset = -4,
+    .end_trigger = {
+        .type = RFC_TRIG_REL_START,
+        .ena_cmd = 0,
+        .trigger_no = 0,
+        .past_trig = 0
+    },
+    .end_time = 0, /* set by _load_mode() */
     .addr = 0, /* unused */
     .queue = 0, /* set by us */
     .output = 0 /* set by us */
@@ -995,14 +1097,6 @@ rfc_cmd_prop_cs_t rf_cmd_prop_cs =
         .past_trig = 0
     },
     .end_time = 0,
-};
-
-/** Command to clear the RX queue */
-rfc_cmd_clear_rx_t rf_cmd_clear_rx =
-{
-    .command_no = RFC_CMD_CLEAR_RX,
-    .__dummy0 = 0,
-    .queue = NULL /* set by us */
 };
 
 /**
@@ -1104,6 +1198,53 @@ static int _wait_cmd(const volatile uint16_t *status)
     return -ETIMEDOUT;
 }
 
+/* Symbol period of a mode in nanoseconds */
+static uint32_t _symbol_ns(const fsk_mode_t *mode)
+{
+    switch (mode->srate) {
+    case IEEE802154_MR_FSK_SRATE_50K:
+        return 20000;
+    case IEEE802154_MR_FSK_SRATE_100K:
+        return 10000;
+    case IEEE802154_MR_FSK_SRATE_150K:
+        return 6667;
+    case IEEE802154_MR_FSK_SRATE_200K:
+        return 5000;
+    case IEEE802154_MR_FSK_SRATE_300K:
+        return 3334;
+    default:
+        return 2500;
+    }
+}
+
+/*
+ * Time the receiver searches for the sync word of an ACK after the frame
+ * was sent, in microseconds.
+ *
+ * IEEE Std 802.15.4-2024, 6.6.3.4, only asks to wait for the Ack frame "the
+ * expected time". This is the time RIOT's SubMAC and its at86rf215 driver
+ * wait, a backoff period (aTurnaroundTime + phyCcaDuration) plus
+ * aTurnaroundTime plus the frame, with two differences:
+ *
+ * - The synchronization header counts with the symbol period of the mode.
+ *   Its length is the one of the at86rf215, the longest of the radios RIOT
+ *   has for this PHY: eight times ieee802154_mr_fsk_plen() preamble octets,
+ *   which is 64, the maximum of phyFskPreambleLength, from 150 ksym/s on.
+ * - The PHR and the PSDU of the ACK are left out: the wait ends at the sync
+ *   word, and a frame that has started is received to its end, see
+ *   rf_cmd_prop_rx_ack.
+ */
+static uint32_t _ack_wait_us(const fsk_mode_t *mode)
+{
+    const uint32_t backoff_period_us = IEEE802154G_ATURNAROUNDTIME_US
+                                     + CCA_DURATION_US;
+    const uint32_t shr_symbols = (ieee802154_mr_fsk_plen(mode->srate) * 8U
+                                  + (SYNC_WORD_BITS / 8U)) * 8U;
+
+    return backoff_period_us + IEEE802154G_ATURNAROUNDTIME_US
+           + (shr_symbols * _symbol_ns(mode) + 999U) / 1000U;
+}
+
 /*
  * Writes a mode into CMD_PROP_RADIO_DIV_SETUP and builds its override list.
  * The command must not be running.
@@ -1119,6 +1260,7 @@ static void _load_mode(const fsk_mode_t *mode)
     rf_cmd_prop_radio_div_setup.pream_conf.pream_bytes = mode->preamble_len;
     /* in RAT ticks of 250 ns */
     rf_cmd_prop_cs.end_time = (mode->cs_start_us + CCA_DURATION_US) * 4;
+    rf_cmd_prop_rx_ack.end_time = _ack_wait_us(mode) * 4;
 
     _overrides[n++] = OVERRIDE_DCDCCTL5_REG;
     _overrides[n++] = OVERRIDE_RF_FSCA_0;
@@ -1208,7 +1350,8 @@ void cc26x2_cc13x2_rf_internal_init(void)
 
     rf_cmd_prop_rx_adv.queue = &_rx_queue;
     rf_cmd_prop_rx_adv.output = &_rx_output;
-    rf_cmd_clear_rx.queue = &_rx_queue;
+    rf_cmd_prop_rx_ack.queue = &_rx_queue;
+    rf_cmd_prop_rx_ack.output = &_rx_output;
 
     uint64_t default_freq = cc26x2_cc13x2_rf_chan_freq(CC26X2_CC13X2_RF_CHAN_MIN);
     cc26x2_cc13x2_rf_freq_convert(default_freq,
@@ -1387,12 +1530,50 @@ static bool _rx_is_on(void)
 }
 
 /*
+ * Links the entries of the RX queue that are free into the ring the RF Core
+ * writes to, and makes the first of them the current one. No receive command
+ * may be running.
+ *
+ * An entry that is Finished is left out: it holds a frame that waits to be
+ * read, or one the interrupt handler has not looked at yet. The RF Core
+ * therefore never comes across one of them, which would end the receive
+ * command with PROP_ERROR_RXBUF ([TRM] Table 25-186). Any other entry is
+ * free, whatever state a command that was stopped or aborted left it in.
+ */
+static int _rx_ring_build(void)
+{
+    rfc_data_entry_t *first = NULL;
+    rfc_data_entry_t *prev = NULL;
+
+    for (unsigned i = 0; i < CONFIG_CC26X2_CC13X2_RF_RX_BUF_NUMOF; i++) {
+        rfc_data_entry_t *entry = &_rx_buf[i].entry;
+
+        if (((volatile rfc_data_entry_t *)entry)->status == RFC_DATA_ENTRY_FINISHED) {
+            continue;
+        }
+        entry->status = RFC_DATA_ENTRY_PENDING;
+        if (first == NULL) {
+            first = entry;
+        }
+        else {
+            prev->next_entry = entry;
+        }
+        prev = entry;
+    }
+    if (first == NULL) {
+        return -ENOBUFS;
+    }
+    prev->next_entry = first;
+    _rx_queue.curr_entry = first;
+
+    return 0;
+}
+
+/*
  * Starts CMD_PROP_RX_ADV:
  *
- * 1. If the previous RX ended with PROP_ERROR_RXBUF (0x3801, no free entry at
- *    the start of a frame), empty the queue with the immediate command
- *    CMD_CLEAR_RX. It sets every entry of the ring back to Pending and fails
- *    with QueueBusy if the first entry is Busy ([TRM] 25.3.4.4).
+ * 1. Build the ring of free entries, see _rx_ring_build(). Without a free
+ *    entry RX is not started and this function returns -ENOBUFS.
  * 2. Submit the RX command. CMDSTA SchedulingError (0x86) means that another
  *    radio operation command is still running; it is not affected by the
  *    rejected command ([TRM] Table 25-2). This function then returns -EBUSY
@@ -1411,22 +1592,9 @@ static int _rx_start(void)
     }
     _rx_submitted = false;
 
-    /* if netdev or IEEE 802.15.4g HAL don't clear up the buffers by calling
-     * recv/indication_rx the buffer might fill up, this is the case for
-     * netdev as when receiving packets too fast gnrc_netif might not handle
-     * them as fast as we want, so in either case if these packets aren't handled
-     * just drop them.
-     *
-     * TODO: what about re-generating the ISR event and return -EBUSY here to
-     * avoid the loss of these packets? */
-    if (rf_cmd_prop_rx_adv.status == RFC_PROP_ERROR_RXBUF) {
-        DEBUG("[cc26x2_cc13x2_rf]: clearing RX queue\n");
-        cmdsta = cc26x2_cc13x2_rfc_request_execute((uintptr_t)&rf_cmd_clear_rx);
-        if ((cmdsta & 0xFF) != RFC_CMDSTA_DONE) {
-            DEBUG("[cc26x2_cc13x2_rf]: CMD_CLEAR_RX failed, cmdsta=%08lx\n",
-                  cmdsta);
-            return -EIO;
-        }
+    if (_rx_ring_build() != 0) {
+        DEBUG("[cc26x2_cc13x2_rf]: no free RX entry\n");
+        return -ENOBUFS;
     }
 
     /* RX is not running, so the command structure may be written */
@@ -1536,21 +1704,106 @@ void cc26x2_cc13x2_rf_copy_psdu(uint8_t *dst, const uint8_t *src, size_t len)
     }
 }
 
-rfc_data_entry_general_t *cc26x2_cc13x2_rf_recv(void)
+static bool _rx_is_kept(const rfc_data_entry_general_t *entry)
 {
-    return (rfc_data_entry_general_t *)cc26x2_cc13x2_rfc_queue_recv(&_rx_queue);
+    for (unsigned i = 0; i < _rx_kept_numof; i++) {
+        if (_rx_kept[i] == entry) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
-int cc26x2_cc13x2_rf_write(const iolist_t *iolist)
+rfc_data_entry_general_t *cc26x2_cc13x2_rf_rx_next(void)
 {
-    const size_t max_psdu_len = TX_BUF_LEN - IEEE802154_PHY_MR_FSK_PHR_LEN;
+    rfc_data_entry_general_t *res = NULL;
+    unsigned key = irq_disable();
+
+    for (unsigned i = 0; (i < CONFIG_CC26X2_CC13X2_RF_RX_BUF_NUMOF) && (res == NULL); i++) {
+        rfc_data_entry_general_t *entry = (rfc_data_entry_general_t *)&_rx_buf[i].entry;
+
+        if ((((volatile rfc_data_entry_general_t *)entry)->status == RFC_DATA_ENTRY_FINISHED) &&
+            !_rx_is_kept(entry)) {
+            res = entry;
+        }
+    }
+    irq_restore(key);
+
+    return res;
+}
+
+bool cc26x2_cc13x2_rf_rx_keep(rfc_data_entry_general_t *entry)
+{
+    bool res = false;
+    unsigned key = irq_disable();
+
+    if (_rx_kept_numof < RX_KEPT_MAX) {
+        _rx_kept[_rx_kept_numof++] = entry;
+        res = true;
+    }
+    irq_restore(key);
+
+    return res;
+}
+
+rfc_data_entry_general_t *cc26x2_cc13x2_rf_recv(void)
+{
+    rfc_data_entry_general_t *res;
+    unsigned key = irq_disable();
+
+    res = _rx_kept_numof ? _rx_kept[0] : NULL;
+    irq_restore(key);
+
+    return res;
+}
+
+void cc26x2_cc13x2_rf_rx_release(void)
+{
+    unsigned key = irq_disable();
+
+    if (_rx_kept_numof) {
+        _rx_kept[0]->status = RFC_DATA_ENTRY_PENDING;
+        _rx_kept_numof--;
+        for (unsigned i = 0; i < _rx_kept_numof; i++) {
+            _rx_kept[i] = _rx_kept[i + 1];
+        }
+    }
+    irq_restore(key);
+}
+
+void cc26x2_cc13x2_rf_rx_release_last(void)
+{
+    unsigned key = irq_disable();
+
+    if (_rx_kept_numof) {
+        _rx_kept[--_rx_kept_numof]->status = RFC_DATA_ENTRY_PENDING;
+    }
+    irq_restore(key);
+}
+
+void cc26x2_cc13x2_rf_rx_release_all(void)
+{
+    unsigned key = irq_disable();
+
+    while (_rx_kept_numof) {
+        _rx_kept[--_rx_kept_numof]->status = RFC_DATA_ENTRY_PENDING;
+    }
+    irq_restore(key);
+}
+
+/* Writes the PHR and the PSDU of a frame into a transmit buffer. Returns
+ * their length, which is what CMD_PROP_TX_ADV takes as packet length. */
+static int _frame_write(uint8_t *tx_buf, size_t tx_buf_len, const iolist_t *iolist)
+{
+    const size_t max_psdu_len = tx_buf_len - IEEE802154_PHY_MR_FSK_PHR_LEN;
     const size_t fcs_len = sizeof(uint16_t);
     size_t total_len;
     size_t psdu_len = 0;
 
     /* PHY header size reserved (two bytes), after the PHR the
      * PSDU starts */
-    uint8_t *buf_pos = _tx_buf + IEEE802154_PHY_MR_FSK_PHR_LEN;
+    uint8_t *buf_pos = tx_buf + IEEE802154_PHY_MR_FSK_PHR_LEN;
     for (const iolist_t *iol = iolist; iol; iol = iol->iol_next) {
         psdu_len += iol->iol_len;
         if (psdu_len > max_psdu_len) {
@@ -1574,32 +1827,52 @@ int cc26x2_cc13x2_rf_write(const iolist_t *iolist)
      *
      * Total length = len (payload) + CRC length
      *
-     * The Radio will flip the bits around, so _tx_buf[0] must have the
-     * length LSBs (PHR[15:8] and _tx_buf[1] will have PHR[7:0]
+     * The Radio will flip the bits around, so tx_buf[0] must have the
+     * length LSBs (PHR[15:8] and tx_buf[1] will have PHR[7:0]
      *
      * This is the example of [TRM] 25.10.5.2.1 with the CRC-16 bit added.
      * The radio reads the 16-bit header from the buffer in little-endian
-     * order and sends it MSB first ([TRM] 25.10.5.3.2), so _tx_buf[1] goes
-     * out before _tx_buf[0]. With `whiten_mode = 7` the radio CPU reads
+     * order and sends it MSB first ([TRM] 25.10.5.3.2), so tx_buf[1] goes
+     * out before tx_buf[0]. With `whiten_mode = 7` the radio CPU reads
      * these header bits, counted from the LSB of the 16-bit header:
      *
-     * - bit 11, 0x08 in _tx_buf[1]: whitening enabled,
-     * - bit 12, 0x10 in _tx_buf[1]: 16-bit CRC instead of the 32-bit one,
+     * - bit 11, 0x08 in tx_buf[1]: whitening enabled,
+     * - bit 12, 0x10 in tx_buf[1]: 16-bit CRC instead of the 32-bit one,
      * - bit 15: header-only frame, never set here.
      *
      * Only the PHR is given in this form. The PSDU bytes were bit-reversed
      * when they were copied into the buffer, see
      * cc26x2_cc13x2_rf_copy_psdu(). */
-    _tx_buf[0] = (((total_len) >> 0) & 0xFF);
-    _tx_buf[1] = (((total_len) >> 8) & 0xFF) + 0x08 + 0x10;
+    tx_buf[0] = (((total_len) >> 0) & 0xFF);
+    tx_buf[1] = (((total_len) >> 8) & 0xFF) + 0x08 + 0x10;
 
     /* The length of the buffer used to transmit is the PHR + PSDU,
      * it does not include the FCS size as the radio writes it on
      * it's own depending on the configured FCS, which is CRC-16 in
      * our case */
-    rf_cmd_prop_tx_adv.pkt_len = IEEE802154_PHY_MR_FSK_PHR_LEN + psdu_len;
-    rf_cmd_prop_tx_adv.pkt = _tx_buf;
-    rf_cmd_prop_tx_adv.status = RFC_IDLE;
+    return IEEE802154_PHY_MR_FSK_PHR_LEN + psdu_len;
+}
+
+int cc26x2_cc13x2_rf_write(const iolist_t *iolist)
+{
+    int res = _frame_write(_tx_buf, sizeof(_tx_buf), iolist);
+
+    if (res < 0) {
+        return res;
+    }
+    _tx_pkt_len = res;
+
+    return 0;
+}
+
+int cc26x2_cc13x2_rf_write_ack(const iolist_t *iolist)
+{
+    int res = _frame_write(_tx_ack_buf, sizeof(_tx_ack_buf), iolist);
+
+    if (res < 0) {
+        return res;
+    }
+    _tx_ack_pkt_len = res;
 
     return 0;
 }
@@ -1616,16 +1889,40 @@ int cc26x2_cc13x2_rf_write(const iolist_t *iolist)
  * transmit command keeps the status IDLE: cc26x2_cc13x2_rf_tx_chain_state()
  * tells the cases apart.
  *
+ * With `wait_ack` the RF Core goes on from CMD_PROP_TX_ADV, if the frame was
+ * sent, to the receive command of the ACK, see rf_cmd_prop_rx_ack.
+ * LAST_COMMAND_DONE is then raised when that one ends.
+ *
+ * With `ack` the frame is the one prepared by cc26x2_cc13x2_rf_write_ack(),
+ * sent at once and alone.
+ *
  * SchedulingError means that another radio operation command is still
- * running. The caller must stop RX with cc26x2_cc13x2_rf_rx_stop() before.
+ * running. The caller must stop RX with cc26x2_cc13x2_rf_rx_stop() before:
+ * the ring of the RX queue is also rebuilt here for the wait.
  */
-int cc26x2_cc13x2_rf_request_transmit(bool cca)
+static int _request_transmit(bool ack, bool cca, bool wait_ack)
 {
     uint32_t cmdsta;
     uintptr_t cmd = (uintptr_t)&rf_cmd_prop_tx_adv;
 
+    rf_cmd_prop_tx_adv.pkt = ack ? _tx_ack_buf : _tx_buf;
+    rf_cmd_prop_tx_adv.pkt_len = ack ? _tx_ack_pkt_len : _tx_pkt_len;
     rf_cmd_prop_tx_adv.status = RFC_IDLE;
     rf_cmd_prop_cs.status = RFC_IDLE;
+    rf_cmd_prop_rx_ack.status = RFC_IDLE;
+    if (wait_ack) {
+        /* the receive command needs a free entry for the ACK; if a frame
+         * is still to be looked at, the interrupt handler frees one */
+        if (_rx_ring_build() != 0) {
+            return -EBUSY;
+        }
+        rf_cmd_prop_tx_adv.next_op = (rfc_op_t *)&rf_cmd_prop_rx_ack;
+        rf_cmd_prop_tx_adv.condition.rule = RFC_COND_STOP_ON_FALSE;
+    }
+    else {
+        rf_cmd_prop_tx_adv.next_op = NULL;
+        rf_cmd_prop_tx_adv.condition.rule = RFC_COND_NEVER;
+    }
     if (cca) {
         rf_cmd_prop_cs.next_op = (rfc_op_t *)&rf_cmd_prop_tx_adv;
         rf_cmd_prop_cs.condition.rule = RFC_COND_STOP_ON_TRUE;
@@ -1648,13 +1945,32 @@ int cc26x2_cc13x2_rf_request_transmit(bool cca)
     return 0;
 }
 
-int cc26x2_cc13x2_rf_tx_chain_state(bool cca)
+int cc26x2_cc13x2_rf_request_transmit(bool cca, bool wait_ack)
+{
+    return _request_transmit(false, cca, wait_ack);
+}
+
+int cc26x2_cc13x2_rf_request_transmit_ack(void)
+{
+    return _request_transmit(true, false, false);
+}
+
+int cc26x2_cc13x2_rf_tx_chain_state(bool cca, bool wait_ack)
 {
     uint16_t cs = rf_cmd_prop_cs.status;
     uint16_t tx = rf_cmd_prop_tx_adv.status;
 
     if (cc26x2_cc13x2_rfc_cmd_has_ended(tx)) {
-        return (tx == RFC_PROP_DONE_OK) ? 0 : -EIO;
+        if (tx != RFC_PROP_DONE_OK) {
+            return -EIO;
+        }
+        /* however the wait for the ACK ended, the frame was sent: what
+         * was received tells whether the ACK came */
+        if (wait_ack &&
+            !cc26x2_cc13x2_rfc_cmd_has_ended(rf_cmd_prop_rx_ack.status)) {
+            return -EAGAIN;
+        }
+        return 0;
     }
     if (cca && cc26x2_cc13x2_rfc_cmd_has_ended(cs) && (cs != RFC_PROP_DONE_IDLE)) {
         /* the chain stopped at the carrier sense */
