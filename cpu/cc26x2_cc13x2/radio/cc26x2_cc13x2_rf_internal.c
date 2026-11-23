@@ -227,6 +227,12 @@ enum {
  * the second list to the override list of the setup command when the 20 dBm
  * PA is used. They are only part of the list when the 20 dBm PA is available,
  * so that changing the PA in either direction sets every value again.
+ *
+ * Without the 20 dBm PA the first list is not needed, although TI has it in
+ * every CC1352P setting: its value is the one the register has after the
+ * setup command anyway. Read back on a CC1352P1 in a build without these
+ * entries: 0x0401 at 0x400460A8. With them: 0x0001 once the 20 dBm PA is
+ * selected and 0x0401 again with the standard PA.
  * @{
  */
 /* Set TXRX pin to 0 in RX and high impedance in idle/TX. */
