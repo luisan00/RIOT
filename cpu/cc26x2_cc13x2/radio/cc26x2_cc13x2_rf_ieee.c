@@ -90,6 +90,16 @@
 #define ACK_WAIT_US             (864U)
 /** @} */
 
+/**
+ * @brief   Correlation peaks for the carrier sense of the CCA
+ *
+ * The correlator based carrier sense is busy if it saw more than this many
+ * correlation peaks in the last 8 symbol periods, 3 at most ([TRM]
+ * 25.5.4.1.5). An O-QPSK signal gives one per symbol. With 0, noise alone
+ * made a clear channel busy in 40 % of the CCAs on a CC1352P1.
+ */
+#define CCA_CORR_THR            (3U)
+
 /** Value of the status byte appended to a received frame ([TRM] Table 25-79) */
 #define RX_STATUS_CORR_MASK     (0x3F)
 
@@ -355,6 +365,7 @@ static int _rx_start(bool quiet)
     };
     _cmd_rx.cca_opt.cca_en_sync = 1;
     _cmd_rx.cca_opt.cca_sync_op = 0;
+    _cmd_rx.cca_opt.cca_corr_thr = CCA_CORR_THR;
 
     if (!_exec(&_cmd_rx)) {
         DEBUG("[cc26x2_cc13x2_rf]: CMD_IEEE_RX rejected\n");
@@ -654,6 +665,8 @@ static int _write(ieee802154_dev_t *dev, const iolist_t *iolist)
     (void)dev;
     size_t len = 0;
 
+    /* nothing to send until a frame was written in full */
+    _cmd_tx.payload_len = 0;
     for (const iolist_t *iol = iolist; iol; iol = iol->iol_next) {
         if (len + iol->iol_len > sizeof(_tx_buf)) {
             return -EOVERFLOW;
@@ -819,6 +832,10 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
     case IEEE802154_HAL_OP_CCA:
         if (_fg != FG_NONE) {
             return -EBUSY;
+        }
+        if ((op == IEEE802154_HAL_OP_TRANSMIT) && (_cmd_tx.payload_len == 0)) {
+            /* the frame did not fit, see _write() */
+            return -EINVAL;
         }
         _tx.own_bg = (_bg == BG_NONE);
         if (_tx.own_bg && (_rx_start(true) != 0)) {
