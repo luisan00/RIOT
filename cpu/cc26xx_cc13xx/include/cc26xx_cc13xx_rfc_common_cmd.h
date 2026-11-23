@@ -165,6 +165,56 @@ typedef struct {
 /** @} */
 
 /**
+ * @brief   CMD_RADIO_SETUP
+ * @{
+ */
+#define RFC_CMD_RADIO_SETUP (0x0802) /**< CMD_RADIO_SETUP command ID */
+
+#define RFC_RADIO_SETUP_MODE_BLE        (0x00) /**< Bluetooth low energy */
+#define RFC_RADIO_SETUP_MODE_IEEE802154 (0x01) /**< IEEE 802.15.4 */
+#define RFC_RADIO_SETUP_MODE_KEEP       (0xFF) /**< Keep the existing mode and
+                                                    update overrides only */
+/**
+ * @brief   Radio setup command for the pre-defined schemes
+ *
+ * Sets the RF Core up in one of the modes it has in ROM, like the IEEE
+ * 802.15.4 one for the 2.4 GHz band (SWCU185G, section 25.3.3.1.2). The
+ * proprietary mode has commands of its own.
+ */
+typedef struct {
+    uint16_t command_no; /**< The command ID number */
+    uint16_t status; /**< An integer telling the status of the command. */
+    void *next_op; /**< Pointer to the next operation to run */
+    rfc_ratmr_t start_time; /**< Absolute or relative start time */
+    rfc_trigger_t start_trigger; /**< Identification of the trigger that
+                                      starts the operation */
+    rfc_cond_t condition; /**< Condition for running next command */
+    uint8_t mode; /**< The main mode to use, one of RFC_RADIO_SETUP_MODE_* */
+    uint8_t lo_divider; /**< LO divider setting to use. 0 selects the 2.4 GHz
+                             band, the other supported values are 2, 4, 5, 6,
+                             10, 12, 15 and 30. */
+    struct {
+        uint16_t front_end_mode:3; /**< 0h: differential mode, 1h: single-ended
+                                        mode RFP, 2h: single-ended mode RFN,
+                                        5h and 6h: the same two with external
+                                        front end control on the RF pins */
+        uint16_t bias_mode:1; /**< 0h: internal bias, 1h: external bias */
+        uint16_t analog_cfg_mode:6; /**< 0x00: write analog configuration,
+                                         required the first time after boot
+                                         and when changing frequency band or
+                                         front-end configuration. 0x2D: keep
+                                         analog configuration */
+        uint16_t no_fs_powerup:1; /**< 0h: power up the frequency synth, 1h:
+                                       do not power it up */
+    } config; /**< Configuration options */
+    uint16_t tx_power; /**< Transmit power */
+    uint32_t *reg_override; /**< Pointer to a list of hardware and
+                                 configuration registers to override. If NULL,
+                                 no override is used. */
+} rfc_cmd_radio_setup_t;
+/** @} */
+
+/**
  * @brief   CMD_SET_TX_POWER
  * @{
  */
@@ -175,7 +225,7 @@ typedef struct {
 typedef struct {
    uint16_t command_no; /**< The command ID number */
    uint16_t tx_power; /**< New TX power setting */
-} rfc_cmd_set_tx_power_t;
+} __attribute__((aligned(4))) rfc_cmd_set_tx_power_t;
 /** @} */
 
 /**
