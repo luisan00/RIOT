@@ -25,6 +25,7 @@
 extern "C" {
 #endif
 
+#if !IS_USED(MODULE_CC26X2_CC13X2_RF_24GHZ) || defined(DOXYGEN)
 /**
  * @name   CC26x2/CC13x2 PA table configuration
  * @{
@@ -64,6 +65,7 @@ static cc26x2_cc13x2_rf_pa_t cc26x2_cc13x2_rf_patable[] =
  */
 #define CC26X2_CC13X2_PA_TABLE_NUMOF ARRAY_SIZE(cc26x2_cc13x2_rf_patable)
 /** @} */
+#endif
 
 #if BOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ || defined(DOXYGEN)
 /**
@@ -103,6 +105,43 @@ static const cc26x2_cc13x2_rf_pa20_t cc26x2_cc13x2_rf_pa20_table[] =
  */
 #define CC26X2_CC13X2_RF_PA_RAMP_200K_H05 \
     RFC_ADI_2HALFREG_OVERRIDE(0, 16, 0x8, 0x8, 17, 0x1, 0x0)
+
+#if IS_USED(MODULE_CC26X2_CC13X2_RF_24GHZ) || defined(DOXYGEN)
+/**
+ * @name   PA table for the 2.4 GHz band
+ *
+ * The standard PA gives up to 5 dBm in this band. The values are TI's for
+ * the RF design `LAUNCHXL-CC1352P1`, 2360 to 2510 MHz (SimpleLink SDK 8.33.00.16,
+ * `radioconfig/.meta/config/pa_tables/cc13x2_cc26x2_r3/pasettings.json`).
+ * @{
+ */
+/**
+ * @brief   PA table of the 2.4 GHz band: TX power in dBm and its setting
+ */
+static const cc26x2_cc13x2_rf_pa_t cc26x2_cc13x2_rf_patable_24ghz[] =
+{
+    { .dbm = 5, .val = 0x7217 },
+    { .dbm = 4, .val = 0x4E63 },
+    { .dbm = 3, .val = 0x385D },
+    { .dbm = 2, .val = 0x3259 },
+    { .dbm = 1, .val = 0x2856 },
+    { .dbm = 0, .val = 0x2853 },
+    { .dbm = -3, .val = 0x1893 },
+    { .dbm = -5, .val = 0x12D6 },
+    { .dbm = -6, .val = 0x10D4 },
+    { .dbm = -9, .val = 0x0AD0 },
+    { .dbm = -10, .val = 0x0ACF },
+    { .dbm = -12, .val = 0x0ACC },
+    { .dbm = -15, .val = 0x06CA },
+    { .dbm = -18, .val = 0x06C8 },
+    { .dbm = -20, .val = 0x04C6 },
+};
+/**
+ * @brief   Number of entries of the PA table of the 2.4 GHz band
+ */
+#define CC26X2_CC13X2_PA_TABLE_24GHZ_NUMOF ARRAY_SIZE(cc26x2_cc13x2_rf_patable_24ghz)
+/** @} */
+#endif
 
 #ifdef __cplusplus
 } /* extern "C" */
