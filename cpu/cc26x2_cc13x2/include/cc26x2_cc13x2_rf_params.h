@@ -30,6 +30,14 @@ extern "C" {
  * @param[in] gain          GC, PA gain setting (bits 6 and 7)
  * @param[in] boost         PA boost bit (bit 8)
  * @param[in] coefficient   temperature coefficient (bits 9 to 15)
+ *
+ * The RF Core compensates the TX power for temperature by itself: every
+ * time a transmission starts it uses the bias
+ * `IB + (T - 25) * coefficient / 256`, with the temperature `T` of the chip
+ * in degrees Celsius (SWCU185G, 25.3.3.2.16). It takes the temperature from
+ * the battery and temperature monitor of the MCU, which is on from boot and
+ * must be left on (SWCU185G, 20.1). The values of a PA table come with the
+ * coefficient TI gives for each power.
  */
 #define CC26X2_CC13X2_RF_PA_ENTRY(bias, gain, boost, coefficient) \
     (((bias) << 0) | ((gain) << 6) | ((boost) << 8) | ((coefficient) << 9))

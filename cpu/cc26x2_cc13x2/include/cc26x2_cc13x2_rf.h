@@ -73,7 +73,8 @@
  *   they report a busy channel or radio
  * - LQI, derived from the RSSI of the frame: 0 at -100 dBm or less, 255 at
  *   -20 dBm or more
- * - TX power from the PA table of the board (`rf_conf.h`)
+ * - TX power from the PA table of the board (`rf_conf.h`), compensated for
+ *   temperature by the RF Core, see CC26X2_CC13X2_RF_PA_ENTRY()
  * - The IEEE address of the device as long address of the network interface,
  *   see cc26x2_cc13x2_rf_get_eui64()
  * - Optionally the 20 dBm PA of the CC1352P, on the boards that have it
