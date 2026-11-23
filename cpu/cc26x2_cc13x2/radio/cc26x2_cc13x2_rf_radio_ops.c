@@ -110,11 +110,13 @@ static struct {
     bool ack_only : 1; /**< whether only ACK frames should be indicated */
     bool auto_ack : 1; /**< whether the radio sends ACKs automatically */
     bool ifs      : 1; /**< whether the radio is in IFS mode */
+    bool cca_send : 1; /**< whether a CCA is done before a transmission */
 } _cfg = {
     .promisc  = false,
     .ack_only = false,
     .auto_ack = true,
     .ifs      = false,
+    .cca_send = true,
 };
 
 static uint8_t _ack[ACK_PSDU_LEN];
@@ -135,6 +137,9 @@ enum {
 };
 
 static volatile uint8_t _tx_state;
+
+/** The transmission in progress was requested with a CCA before it */
+static bool _tx_cca;
 
 static volatile int _tx_result = -EAGAIN;
 
@@ -255,11 +260,11 @@ static void _restore_rx(void)
  * any other status is an error (SWCU185G, Table 25-184) */
 static void _tx_done(ieee802154_dev_t *dev)
 {
-    bool sent = rf_cmd_prop_tx_adv.status == RFC_PROP_DONE_OK;
+    int res = cc26x2_cc13x2_rf_tx_chain_state(_tx_cca);
+    bool sent = (res == 0);
     uint8_t tx_state = _tx_state;
 
     _tx_state = TX_STATE_IDLE;
-    rf_cmd_prop_tx_adv.status = RFC_IDLE;
 
     if (tx_state == TX_STATE_TX_ACK) {
         /* The received frame is indicated whether or not its ACK went out:
@@ -269,7 +274,9 @@ static void _tx_done(ieee802154_dev_t *dev)
         dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
     }
     else {
-        _tx_result = sent ? 0 : -EIO;
+        /* -EBUSY: the channel was busy and nothing was sent. The radio stays
+         * idle, as the HAL asks: the SubMAC tries again after a backoff. */
+        _tx_result = res;
         if (sent) {
             _set_ifs_timer();
         }
@@ -332,7 +339,7 @@ void cc26x2_cc13x2_rfc_isr(void)
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
 
         if ((_tx_state != TX_STATE_IDLE) &&
-            cc26x2_cc13x2_rfc_cmd_has_ended(rf_cmd_prop_tx_adv.status)) {
+            (cc26x2_cc13x2_rf_tx_chain_state(_tx_cca) != -EAGAIN)) {
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
             _tx_done(dev);
         }
@@ -457,11 +464,12 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         cc26x2_cc13x2_rf_rx_stop();
 
         _tx_result = -EAGAIN;
+        _tx_cca = _cfg.cca_send;
         _tx_state = TX_STATE_TX;
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
         RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
 
-        if ((res = cc26x2_cc13x2_rf_request_transmit()) != 0) {
+        if ((res = cc26x2_cc13x2_rf_request_transmit(_tx_cca)) != 0) {
             DEBUG("[cc26x2_cc13x2_rf]: failed to transmit\n");
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
             _tx_state = TX_STATE_IDLE;
@@ -534,7 +542,15 @@ static int _confirm_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         int res = _tx_result;
         _tx_result = -EAGAIN;
         _state = STATE_IDLE;
-        if (res == 0 && info != NULL) {
+        if (res == -EBUSY) {
+            /* the CCA before the transmission found the channel busy */
+            res = 0;
+            if (info != NULL) {
+                info->status = TX_STATUS_MEDIUM_BUSY;
+                info->retrans = 0;
+            }
+        }
+        else if (res == 0 && info != NULL) {
             info->status = TX_STATUS_SUCCESS;
             info->retrans = 0;
         }
@@ -679,14 +695,17 @@ static int _set_csma_params(ieee802154_dev_t *dev,
     (void)dev;
     (void)bd;
 
-    /* TODO: adapt and do a hack with CMD_PROP_CS to perform Auto CSMA,
-     * by using CMD_PROP_TX_ADV as the next operation. */
-    /* only direct mode for now */
-    if (retries == -1) {
-        return 0;
+    /* The radio has no CSMA-CA with backoffs and retries of its own, the
+     * SubMAC does that. It does the CCA of every attempt: with 0 retries a
+     * transmission starts with a CCA and only goes on if the channel is
+     * clear, with a negative number it is sent right away. */
+    if (retries > 0) {
+        return -EINVAL;
     }
 
-    return -EINVAL;
+    _cfg.cca_send = (retries == 0);
+
+    return 0;
 }
 
 static int _config_src_addr_match(ieee802154_dev_t *dev, ieee802154_src_match_t cmd,
@@ -801,11 +820,13 @@ static void _timer_cb(void *arg, int chan)
         /* send the ACK frame */
         cc26x2_cc13x2_rf_write(&iolist);
 
+        /* an ACK is sent without CCA */
+        _tx_cca = false;
         _tx_state = TX_STATE_TX_ACK;
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
         RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
 
-        if (cc26x2_cc13x2_rf_request_transmit() != 0) {
+        if (cc26x2_cc13x2_rf_request_transmit(false) != 0) {
             /* The ACK is lost. Go back to RX and indicate the frame, as
              * after an ACK that was sent. */
             DEBUG("[cc26x2_cc13x2_rf]: failed to transmit the ACK\n");

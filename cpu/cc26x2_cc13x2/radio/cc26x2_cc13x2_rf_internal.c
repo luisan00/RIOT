@@ -471,6 +471,9 @@ typedef struct {
     uint16_t turnaround_us;             /**< time from the end of a received
                                              frame to the first bit of a frame
                                              sent in reply without waiting */
+    uint16_t cs_start_us;               /**< time from the start of the carrier
+                                             sense command to its first RSSI
+                                             measurement */
     const uint32_t *overrides;          /**< mode specific overrides */
 } fsk_mode_t;
 
@@ -497,6 +500,15 @@ typedef struct {
  * within 5 us. The driver subtracts it from the 1 ms the standard asks for
  * before an ACK, see cc26x2_cc13x2_rf_ack_delay_us().
  *
+ * `cs_start_us` is not from TI either. It is the time CMD_PROP_CS took when
+ * it was set to end with its first RSSI measurement, on a clear channel,
+ * from the submission of the command to its interrupt. Measured on a
+ * CC1352P1, it repeats within 1 us. The carrier sense runs for the CCA
+ * duration after it, see rf_cmd_prop_cs. As the measurement includes the
+ * time to submit the command and to serve the interrupt, the channel is
+ * observed a little longer than that: the whole command takes 207 to 211 us
+ * more than this value, where 160 us were added.
+ *
  * [RFCFG] has no 2-GFSK setting for 400 kbit/s, nor for 150 kbit/s and
  * 300 kbit/s with modulation index 1.0, and FEC needs an MCE patch
  * ([TRM] 25.10.5.2.1).
@@ -506,48 +518,56 @@ static const fsk_mode_t _modes[] = {
         .srate = IEEE802154_MR_FSK_SRATE_50K, .mod_idx = 32,
         .deviation = 50, .rate_word = 32768, .rx_bw = 80, .preamble_len = 4,
         .int_freq = 0x0399, .turnaround_us = 818,
+        .cs_start_us = 258,
         .overrides = _overrides_50k_h05,
     },
     {   /* setting_tc106_154g: 25 kHz deviation, 100 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_50K, .mod_idx = 64,
         .deviation = 100, .rate_word = 32768, .rx_bw = 82, .preamble_len = 7,
         .int_freq = 0x8000, .turnaround_us = 819,
+        .cs_start_us = 258,
         .overrides = _overrides_50k_h1,
     },
     {   /* setting_tc152_154g: 25 kHz deviation, 137 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_100K, .mod_idx = 32,
         .deviation = 100, .rate_word = 65536, .rx_bw = 84, .preamble_len = 7,
         .int_freq = 0x0599, .turnaround_us = 510,
+        .cs_start_us = 175,
         .overrides = _overrides_100k_h05,
     },
     {   /* setting_tc137: 50 kHz deviation, 196 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_100K, .mod_idx = 64,
         .deviation = 200, .rate_word = 65536, .rx_bw = 86, .preamble_len = 4,
         .int_freq = 0x08CC, .turnaround_us = 509,
+        .cs_start_us = 175,
         .overrides = _overrides_100k_h1,
     },
     {   /* setting_tc142: 37.5 kHz deviation, 273 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_150K, .mod_idx = 32,
         .deviation = 150, .rate_word = 98304, .rx_bw = 88, .preamble_len = 4,
         .int_freq = 0x08CC, .turnaround_us = 401,
+        .cs_start_us = 133,
         .overrides = _overrides_150k_h05,
     },
     {   /* setting_tc146_154g: 50 kHz deviation, 311 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_200K, .mod_idx = 32,
         .deviation = 200, .rate_word = 131072, .rx_bw = 89, .preamble_len = 7,
         .int_freq = 0x0999, .turnaround_us = 355,
+        .cs_start_us = 133,
         .overrides = _overrides_200k_h05,
     },
     {   /* setting_tc151: 100 kHz deviation, 273 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_200K, .mod_idx = 64,
         .deviation = 400, .rate_word = 131072, .rx_bw = 88, .preamble_len = 4,
         .int_freq = 0x0733, .turnaround_us = 356,
+        .cs_start_us = 133,
         .overrides = _overrides_200k_h1,
     },
     {   /* setting_tc154: 75 kHz deviation, 285 kHz RX bandwidth */
         .srate = IEEE802154_MR_FSK_SRATE_300K, .mod_idx = 32,
         .deviation = 300, .rate_word = 196608, .rx_bw = 92, .preamble_len = 4,
         .int_freq = 0x0666, .turnaround_us = 304,
+        .cs_start_us = 115,
         .overrides = _overrides_300k_h05,
     },
 };
@@ -886,21 +906,41 @@ rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_adv =
 };
 
 /**
+ * @brief   Duration of a CCA in microseconds
+ *
+ * IEEE Std 802.15.4-2024, 11.2.8: the CCA detection time is phyCcaDuration,
+ * which is 8 symbol periods when the PHY does not recommend another value
+ * (Table 12-2). The symbol period of the SUN FSK PHY for MAC and PHY timing
+ * is 20 us in the bands of this driver (Table 20-1).
+ */
+#define CCA_DURATION_US                 (160U)
+
+/**
  * Carrier sense command, used to perform CCA
  *
  * The carrier sense fields are described in [TRM] Table 25-178 and section
  * 25.10.5.5:
  *
- * - Only the RSSI is used (`ena_rssi = 1`, `ena_corr = 0`). The channel is
- *   IDLE after `num_rssi_idle` consecutive measurements below `rssi_thr`,
- *   BUSY after `num_rssi_busy` consecutive measurements above it and INVALID
- *   otherwise.
- * - `busy_op = 1` and `idle_op = 1` end the command on the first BUSY or IDLE
- *   state, with PROP_DONE_BUSY or PROP_DONE_IDLE ([TRM] Table 25-188).
- * - There is no end trigger. `timeout_res` only matters for an end trigger,
- *   so the command runs for as long as the state is INVALID.
+ * - Only the RSSI is used (`ena_rssi = 1`, `ena_corr = 0`): CCA mode 1 of
+ *   the standard, energy above threshold. The channel is IDLE after
+ *   `num_rssi_idle` consecutive measurements below `rssi_thr`, BUSY after
+ *   `num_rssi_busy` consecutive measurements above it and INVALID otherwise.
+ * - `busy_op = 1` ends the command with PROP_DONE_BUSY on the first BUSY
+ *   state. `idle_op = 0` keeps it running while the channel is IDLE, until
+ *   the end trigger: #CCA_DURATION_US after the first RSSI measurement of
+ *   the mode, set by _load_mode(). It then ends with PROP_DONE_IDLE ([TRM]
+ *   Table 25-188).
+ * - `timeout_res = 0`: if there was no measurement at all before the end
+ *   trigger, the command ends with PROP_DONE_BUSYTIMEOUT and the channel
+ *   counts as busy.
  * - `off_idle = 0` and `off_busy = 0` keep the synthesizer running when the
  *   command ends.
+ *
+ * A busy channel is the result TRUE of the command and a clear one FALSE
+ * ([TRM] Table 25-188). For a transmission with CCA the transmit command is
+ * chained to this one with the condition COND_STOP_ON_TRUE ([TRM] Table
+ * 25-8), so that the RF Core only transmits if the channel is clear, see
+ * cc26x2_cc13x2_rf_request_transmit().
  *
  * As the RX and TX commands, it needs the radio set up and the synthesizer
  * programmed with CMD_FS.
@@ -932,9 +972,9 @@ rfc_cmd_prop_cs_t rf_cmd_prop_cs =
         .ena_rssi = 1, /* use RSSI as the measurement parameter */
         .ena_corr = 0,
         .operation = 0,
-        /* stop either on Busy or Idle */
+        /* stop on Busy, observe an Idle channel until the end trigger */
         .busy_op = 1,
-        .idle_op = 1,
+        .idle_op = 0,
         .timeout_res = 0,
     },
     .rssi_thr = -80, /* SHOULD be set by us, through hal or netdev */
@@ -947,10 +987,9 @@ rfc_cmd_prop_cs_t rf_cmd_prop_cs =
         .num_corr_inv = 0,
         .num_corr_busy = 0,
     },
-    /* end trigger is not used, as Carrier Sense will stop
-     * on an Idle/Busy channel. */
+    /* the end time depends on the mode, see _load_mode() */
     .end_trigger = {
-        .type = RFC_TRIG_NEVER,
+        .type = RFC_TRIG_REL_START,
         .ena_cmd = 0,
         .trigger_no = 0,
         .past_trig = 0
@@ -1078,6 +1117,8 @@ static void _load_mode(const fsk_mode_t *mode)
     rf_cmd_prop_radio_div_setup.rx_bw = mode->rx_bw;
     rf_cmd_prop_radio_div_setup.int_freq = mode->int_freq;
     rf_cmd_prop_radio_div_setup.pream_conf.pream_bytes = mode->preamble_len;
+    /* in RAT ticks of 250 ns */
+    rf_cmd_prop_cs.end_time = (mode->cs_start_us + CCA_DURATION_US) * 4;
 
     _overrides[n++] = OVERRIDE_DCDCCTL5_REG;
     _overrides[n++] = OVERRIDE_RF_FSCA_0;
@@ -1321,6 +1362,8 @@ int cc26x2_cc13x2_rf_request_cca(void)
     uint32_t cmdsta;
 
     rf_cmd_prop_cs.status = RFC_IDLE;
+    rf_cmd_prop_cs.next_op = NULL;
+    rf_cmd_prop_cs.condition.rule = RFC_COND_NEVER;
     cmdsta = cc26x2_cc13x2_rfc_request_execute((uintptr_t)&rf_cmd_prop_cs);
     if ((cmdsta & 0xFF) != RFC_CMDSTA_DONE) {
         DEBUG("[cc26x2_cc13x2_rf]: CMD_PROP_CS failed with cmdsta=%08lx",
@@ -1535,14 +1578,29 @@ int cc26x2_cc13x2_rf_write(const iolist_t *iolist)
  * when LAST_COMMAND_DONE is raised and the status field is PROP_DONE_OK
  * (0x3400, [TRM] Table 25-184).
  *
+ * With `cca` the RF Core runs CMD_PROP_CS first and only goes on to
+ * CMD_PROP_TX_ADV if the channel is clear, see rf_cmd_prop_cs. On a busy
+ * channel LAST_COMMAND_DONE is raised when the carrier sense ends, and the
+ * transmit command keeps the status IDLE: cc26x2_cc13x2_rf_tx_chain_state()
+ * tells the cases apart.
+ *
  * SchedulingError means that another radio operation command is still
  * running. The caller must stop RX with cc26x2_cc13x2_rf_rx_stop() before.
  */
-int cc26x2_cc13x2_rf_request_transmit(void)
+int cc26x2_cc13x2_rf_request_transmit(bool cca)
 {
     uint32_t cmdsta;
+    uintptr_t cmd = (uintptr_t)&rf_cmd_prop_tx_adv;
 
-    cmdsta = cc26x2_cc13x2_rfc_request_execute((uintptr_t)&rf_cmd_prop_tx_adv);
+    rf_cmd_prop_tx_adv.status = RFC_IDLE;
+    rf_cmd_prop_cs.status = RFC_IDLE;
+    if (cca) {
+        rf_cmd_prop_cs.next_op = (rfc_op_t *)&rf_cmd_prop_tx_adv;
+        rf_cmd_prop_cs.condition.rule = RFC_COND_STOP_ON_TRUE;
+        cmd = (uintptr_t)&rf_cmd_prop_cs;
+    }
+
+    cmdsta = cc26x2_cc13x2_rfc_request_execute(cmd);
     switch (cmdsta & 0xFF) {
         case RFC_CMDSTA_DONE:
             break;
@@ -1556,6 +1614,23 @@ int cc26x2_cc13x2_rf_request_transmit(void)
     }
 
     return 0;
+}
+
+int cc26x2_cc13x2_rf_tx_chain_state(bool cca)
+{
+    uint16_t cs = rf_cmd_prop_cs.status;
+    uint16_t tx = rf_cmd_prop_tx_adv.status;
+
+    if (cc26x2_cc13x2_rfc_cmd_has_ended(tx)) {
+        return (tx == RFC_PROP_DONE_OK) ? 0 : -EIO;
+    }
+    if (cca && cc26x2_cc13x2_rfc_cmd_has_ended(cs) && (cs != RFC_PROP_DONE_IDLE)) {
+        /* the chain stopped at the carrier sense */
+        return ((cs == RFC_PROP_DONE_BUSY) || (cs == RFC_PROP_DONE_BUSYTIMEOUT))
+               ? -EBUSY : -EIO;
+    }
+
+    return -EAGAIN;
 }
 
 /*

@@ -670,8 +670,28 @@ int cc26x2_cc13x2_rf_write(const iolist_t *iolist);
  * @brief   Request the RF Core to transmit our packet.
  *
  * @pre @ref cc26x2_cc13x2_rf_write MUST have been called.
+ *
+ * @param[in]   cca     perform a CCA first and only transmit if the channel
+ *                      is clear
+ *
+ * @return  0 if the RF Core accepted the request
+ * @return  -EBUSY if another radio operation is running
+ * @return  -EIO on any other error
  */
-int cc26x2_cc13x2_rf_request_transmit(void);
+int cc26x2_cc13x2_rf_request_transmit(bool cca);
+
+/**
+ * @brief   State of the transmission requested with
+ *          @ref cc26x2_cc13x2_rf_request_transmit
+ *
+ * @param[in]   cca     the value given to the request
+ *
+ * @return  0 if the frame was sent
+ * @return  -EAGAIN if the transmission has not ended
+ * @return  -EBUSY if the channel was busy and nothing was sent
+ * @return  -EIO on error
+ */
+int cc26x2_cc13x2_rf_tx_chain_state(bool cca);
 
 /**
  * @brief   Time to wait after a frame was received before the transmission

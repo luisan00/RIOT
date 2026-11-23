@@ -57,7 +57,8 @@
  * ## Features
  *
  * - Automatic transmission of ACK frames, address filtering, promiscuous mode
- * - CCA by energy detection
+ * - CCA by energy detection, on request and before a transmission: the RF
+ *   Core only transmits if the channel was clear for the CCA duration
  * - LQI, derived from the RSSI of the frame: 0 at -100 dBm or less, 255 at
  *   -20 dBm or more
  * - TX power from the PA table of the board (`rf_conf.h`)
@@ -68,7 +69,8 @@
  *
  * Not implemented:
  *
- * - CSMA-CA and retransmissions in the radio (the SubMAC does both)
+ * - The backoffs and retries of CSMA-CA and the retransmissions, which the
+ *   SubMAC does
  * - 4-FSK, FEC and mode switch
  * - The 2.4 GHz band of the CC1352
  *
