@@ -177,6 +177,19 @@ static inline bool _does_send_ack(ieee802154_dev_t *dev)
     return true;
 }
 
+/* The SUN PHYs have frames of up to 2047 octets */
+static inline unsigned _frame_len_max(const ieee802154_submac_t *submac)
+{
+    switch (submac->phy_mode) {
+    case IEEE802154_PHY_MR_OQPSK:
+    case IEEE802154_PHY_MR_OFDM:
+    case IEEE802154_PHY_MR_FSK:
+        return IEEE802154G_FRAME_LEN_MAX;
+    default:
+        return IEEE802154_FRAME_LEN_MAX;
+    }
+}
+
 static inline bool _does_handle_csma(ieee802154_dev_t *dev)
 {
     if (!IS_USED(MODULE_IEEE802154_SUBMAC_SOFT_CSMA_CA) ||
@@ -459,7 +472,7 @@ static ieee802154_submac_fsm_return_t _fsm_state_rx(ieee802154_submac_t *submac,
     case IEEE802154_FSM_EV_RX_DONE:
         while (ieee802154_radio_set_idle(dev, false) < 0) {}
         int rx_len = ieee802154_radio_len(dev);
-        assert(rx_len <= (int)IEEE802154_FRAME_LEN_MAX);
+        assert(rx_len <= (int)_frame_len_max(submac));
         /* Make sure it's not an ACK frame */
         if (rx_len <= (int)IEEE802154_MIN_FRAME_LEN) {
             /* Skip ACK frame */
