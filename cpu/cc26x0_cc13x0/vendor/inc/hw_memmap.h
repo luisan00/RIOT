@@ -65,7 +65,7 @@
 //#define VIMS_BASE               0x40034000 // VIMS
 //#define RFC_PWR_BASE            0x40040000 // RFC_PWR
 //#define RFC_DBELL_BASE          0x40041000 // RFC_DBELL
-#define RFC_RAT_BASE            0x40043000 // RFC_RAT
+//#define RFC_RAT_BASE            0x40043000 // RFC_RAT
 #define RFC_FSCA_BASE           0x40044000 // RFC_FSCA
 #define WDT_BASE                0x40080000 // WDT
 #define IOC_BASE                0x40081000 // IOC
