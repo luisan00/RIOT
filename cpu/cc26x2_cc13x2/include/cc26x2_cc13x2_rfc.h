@@ -139,6 +139,26 @@ static inline bool cc26x2_cc13x2_rfc_cmd_has_ended(uint16_t status)
 int cc26x2_cc13x2_rfc_abort_cmd(const volatile uint16_t *status);
 
 /**
+ * @brief   End a running radio operation command with CMD_STOP, unless it is
+ *          in the middle of a packet
+ *
+ * Unlike cc26x2_cc13x2_rfc_abort_cmd() this does not interrupt a packet that
+ * is being received or transmitted: the command then ends by itself once the
+ * packet is over.
+ *
+ * @pre     The command was accepted by the RF Core: the CMDSTA value
+ *          returned by cc26x2_cc13x2_rfc_request_execute() for it was Done.
+ *
+ * @param[in]   status  The `status` field of the command to stop.
+ *
+ * @return 0 if the command is not running anymore.
+ * @return -EBUSY if the command is still running: it handles a packet and
+ *         ends after it.
+ * @return -EIO if the RF Core rejected CMD_STOP.
+ */
+int cc26x2_cc13x2_rfc_stop_cmd(const volatile uint16_t *status);
+
+/**
  * @brief   Is data available on the data queue?
  *
  * Loops over the queue to check for finished entries.

@@ -648,6 +648,26 @@ int cc26x2_cc13x2_rf_rx_start(void);
 void cc26x2_cc13x2_rf_rx_stop(void);
 
 /**
+ * @brief   Stop RX and wait until the radio is idle, unless a frame is being
+ *          received
+ *
+ * Does nothing if RX is not on.
+ *
+ * @return  0 if RX is off and the radio is idle
+ * @return  -EBUSY if a frame is being received. RX stays on until the end of
+ *          the frame, then it ends and has to be started again.
+ * @return  -EIO on error
+ */
+int cc26x2_cc13x2_rf_rx_stop_unless_receiving(void);
+
+/**
+ * @brief   Check whether RX is off, also when it has ended by itself
+ *
+ * @return  true if the receive command is not running
+ */
+bool cc26x2_cc13x2_rf_rx_has_ended(void);
+
+/**
  * @brief   Receive a packet from the packet queue.
  *
  * @pre An ISR should inform that a packet is ready in the

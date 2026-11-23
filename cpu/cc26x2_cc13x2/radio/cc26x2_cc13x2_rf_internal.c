@@ -1485,6 +1485,38 @@ void cc26x2_cc13x2_rf_rx_stop(void)
 }
 
 /*
+ * Ends CMD_PROP_RX_ADV with CMD_STOP, which leaves a frame that is being
+ * received alone, see cc26x2_cc13x2_rfc_stop_cmd(). This is how the driver
+ * learns that a reception is in progress: the RF Core has no other
+ * documented way to tell.
+ *
+ * If it returns -EBUSY the receive command goes on until the end of the
+ * frame and then ends with PROP_DONE_STOPPED (0x3404). The frame is handled
+ * as any other, and cc26x2_cc13x2_rf_rx_start() starts RX again.
+ */
+int cc26x2_cc13x2_rf_rx_stop_unless_receiving(void)
+{
+    int res = 0;
+    unsigned key = irq_disable();
+
+    if (_rx_submitted) {
+        res = cc26x2_cc13x2_rfc_stop_cmd(&rf_cmd_prop_rx_adv.status);
+        if (res == 0) {
+            _rx_submitted = false;
+        }
+    }
+
+    irq_restore(key);
+
+    return res;
+}
+
+bool cc26x2_cc13x2_rf_rx_has_ended(void)
+{
+    return !_rx_is_on();
+}
+
+/*
  * [TRM] 25.10.5.2.1, note: "The IEEE 802.15.4g PHY header must be presented
  * MSB first to the RF Core. In IEEE 802.15.4g specification, the payload part
  * is LSb first, however the payload length info in physical layer header

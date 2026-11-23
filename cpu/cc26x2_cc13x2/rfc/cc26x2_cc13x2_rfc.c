@@ -39,7 +39,7 @@
  * @brief   Polls of the command status after each CMD_ABORT
  *
  * A command that reacts to CMD_ABORT has its final status by the first poll.
- * 1000 polls take about 0.2 ms at 48 MHz.
+ * 1000 polls take about 0.35 ms at 48 MHz.
  */
 #define ABORT_POLL_MAX      (1000U)
 
@@ -47,6 +47,19 @@
  * @brief   Number of times CMD_ABORT is sent before giving up
  */
 #define ABORT_ATTEMPTS      (16U)
+
+/**
+ * @brief   Number of times CMD_STOP is sent before the command is taken as
+ *          busy with a packet
+ *
+ * A receive command that is searching for sync ends at the first one, and
+ * its final status is there by the first poll. The second one covers a
+ * CMD_STOP without effect, as it was seen with CMD_ABORT right after the
+ * start of the command, see cc26x2_cc13x2_rfc_abort_cmd(). A command that is
+ * busy with a packet is therefore known after two rounds of polls, about
+ * 0.7 ms. Measured on a CC1352P1.
+ */
+#define STOP_ATTEMPTS       (2U)
 
 /*
  * RF Core power-up, first half: from "off" to "CPE booting".
@@ -322,8 +335,8 @@ int cc26x2_cc13x2_rfc_confirm_execute(void)
  * CMD_ABORT is sent again if the command does not end. This is not from
  * [TRM], it was measured on CC1352P1 LaunchPads: a CMD_ABORT sent right after
  * CMD_PROP_RX_ADV was accepted gets CMDSTA Done and has no effect, the RX
- * command keeps running. A second CMD_ABORT 0.2 ms later ends it at once. In
- * every other case the status was final at the first poll.
+ * command keeps running. A second CMD_ABORT one round of polls later ends it
+ * at once. In every other case the status was final at the first poll.
  */
 int cc26x2_cc13x2_rfc_abort_cmd(const volatile uint16_t *status)
 {
@@ -351,6 +364,44 @@ int cc26x2_cc13x2_rfc_abort_cmd(const volatile uint16_t *status)
 
     DEBUG("[cc26x2_cc13x2_rfc]: command still running after CMD_ABORT\n");
     return -ETIMEDOUT;
+}
+
+/*
+ * Ends a radio operation command with CMD_STOP, the graceful one of the two
+ * direct commands described at cc26x2_cc13x2_rfc_abort_cmd(). A receive
+ * command ends at once while it is searching for sync, and at the end of the
+ * packet if it has found sync: "Received CMD_STOP after command started and,
+ * if sync found, packet is received" ([TRM] Table 25-186). The status is
+ * PROP_DONE_STOPPED in both cases.
+ *
+ * So a command that has not ended shortly after CMD_STOP is receiving a
+ * packet. It keeps the request and ends by itself after the packet.
+ */
+int cc26x2_cc13x2_rfc_stop_cmd(const volatile uint16_t *status)
+{
+    assert(status != NULL);
+
+    for (unsigned attempt = 0; attempt < STOP_ATTEMPTS; attempt++) {
+        if (cc26x2_cc13x2_rfc_cmd_has_ended(*status)) {
+            return 0;
+        }
+
+        uint32_t cmdsta =
+            cc26x2_cc13x2_rfc_request_execute(RFC_CMDR_DIR_CMD(RFC_CMD_STOP));
+        if ((cmdsta & 0xFF) != RFC_CMDSTA_DONE) {
+            DEBUG("[cc26x2_cc13x2_rfc]: CMD_STOP failed, cmdsta=%08lx\n",
+                  cmdsta);
+            return -EIO;
+        }
+
+        for (unsigned i = 0; i < ABORT_POLL_MAX; i++) {
+            if (cc26x2_cc13x2_rfc_cmd_has_ended(*status)) {
+                return 0;
+            }
+        }
+    }
+
+    return -EBUSY;
 }
 
 /* RF_CPE0: every CPE interrupt except INTERNAL_ERROR, as selected in

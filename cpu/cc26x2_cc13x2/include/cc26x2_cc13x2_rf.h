@@ -59,6 +59,9 @@
  * - Automatic transmission of ACK frames, address filtering, promiscuous mode
  * - CCA by energy detection, on request and before a transmission: the RF
  *   Core only transmits if the channel was clear for the CCA duration
+ * - A frame that is being received is not interrupted by a CCA, by a
+ *   transmission with CCA or by a request to go idle that is not forced:
+ *   they report a busy channel or radio
  * - LQI, derived from the RSSI of the frame: 0 at -100 dBm or less, 255 at
  *   -20 dBm or more
  * - TX power from the PA table of the board (`rf_conf.h`)

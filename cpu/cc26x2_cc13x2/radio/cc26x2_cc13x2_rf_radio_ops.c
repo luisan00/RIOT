@@ -141,6 +141,15 @@ static volatile uint8_t _tx_state;
 /** The transmission in progress was requested with a CCA before it */
 static bool _tx_cca;
 
+/**
+ * RX was asked to stop while a frame was coming in. It ends by itself after
+ * the frame and is started again from the interrupt of the end of the
+ * command, see _rx_stop_unless_receiving().
+ */
+static volatile bool _rx_stopping;
+
+static void _rx_abort(void);
+
 static volatile int _tx_result = -EAGAIN;
 
 static inline uint16_t _entry_len(const rfc_data_entry_general_t *entry)
@@ -208,7 +217,7 @@ static void _handle_rx(ieee802154_dev_t *dev)
             _ack[2] = psdu[2];
 
             /* To send the ACK we need to stop receiving. */
-            cc26x2_cc13x2_rf_rx_stop();
+            _rx_abort();
 
             /* The ACK goes out AIFS after the frame. */
             timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK,
@@ -254,6 +263,63 @@ static void _restore_rx(void)
     if (_rx_enabled && (cc26x2_cc13x2_rf_rx_start() == 0)) {
         _state = STATE_RX;
     }
+}
+
+/* Whether the end of a transmission or of a CCA is awaited */
+static bool _op_pending(void)
+{
+    return (_tx_state != TX_STATE_IDLE) || _cca_pending;
+}
+
+/* Stops RX at once. A frame that is being received is lost. */
+static void _rx_abort(void)
+{
+    unsigned key = irq_disable();
+
+    cc26x2_cc13x2_rf_rx_stop();
+    if (_rx_stopping) {
+        _rx_stopping = false;
+        if (!_op_pending()) {
+            RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
+        }
+    }
+
+    irq_restore(key);
+}
+
+/*
+ * Stops RX unless a frame is being received, for the operations that must
+ * not disturb a reception: IEEE Std 802.15.4-2024, 11.2.8, "if a request to
+ * perform CCA is received by the PHY during reception of a PPDU, CCA shall
+ * report a busy medium".
+ *
+ * With -EBUSY the RF Core keeps receiving and ends the receive command after
+ * the frame, see cc26x2_cc13x2_rf_rx_stop_unless_receiving(). The interrupt
+ * of the end of the command is enabled to start RX again: a frame that is
+ * dropped by the RF Core (CRC error, illegal length) has no other one.
+ */
+static int _rx_stop_unless_receiving(void)
+{
+    unsigned key = irq_disable();
+    int res = cc26x2_cc13x2_rf_rx_stop_unless_receiving();
+
+    if (res == -EBUSY) {
+        /* the flag is not cleared: if the command has just ended the
+         * interrupt has to come */
+        _rx_stopping = true;
+        RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
+    }
+    else if (_rx_stopping) {
+        /* a previous request has taken effect meanwhile */
+        _rx_stopping = false;
+        if (!_op_pending()) {
+            RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
+        }
+    }
+
+    irq_restore(key);
+
+    return res;
 }
 
 /* CMD_PROP_TX_ADV has ended: PROP_DONE_OK (0x3400) if the frame was sent,
@@ -348,6 +414,14 @@ void cc26x2_cc13x2_rfc_isr(void)
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
             _cca_done(dev);
         }
+        else if (_rx_stopping && !_op_pending() &&
+                 cc26x2_cc13x2_rf_rx_has_ended()) {
+            /* the frame that kept RX on is over, and it was indicated above
+             * if it was a good one */
+            _rx_stopping = false;
+            RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
+            _restore_rx();
+        }
         /* otherwise the flag belongs to a command that was aborted before:
          * keep waiting */
     }
@@ -438,6 +512,7 @@ static int _off(ieee802154_dev_t *dev)
     timer_stop(CC26X2_CC13X2_RF_TIMER);
     _cfg.ifs = false;
     _rx_enabled = false;
+    _rx_stopping = false;
     _cca_pending = false;
     _tx_state = TX_STATE_IDLE;
     _state = STATE_IDLE;
@@ -449,8 +524,6 @@ static int _off(ieee802154_dev_t *dev)
 
 static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
 {
-    (void)dev;
-
     int res;
 
     switch (op) {
@@ -460,8 +533,17 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
             return -EBUSY;
         }
         /* RX must have ended before the TX command is submitted, only one
-         * radio operation command runs at a time */
-        cc26x2_cc13x2_rf_rx_stop();
+         * radio operation command runs at a time. With CCA a frame that is
+         * being received counts as a busy channel and is left alone. */
+        if (!_cfg.cca_send) {
+            _rx_abort();
+        }
+        else if (_rx_stop_unless_receiving() != 0) {
+            _tx_result = -EBUSY;
+            _state = STATE_TX;
+            dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
+            return 0;
+        }
 
         _tx_result = -EAGAIN;
         _tx_cca = _cfg.cca_send;
@@ -497,17 +579,34 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         if (!force && _state != STATE_IDLE && _state != STATE_RX) {
             return -EBUSY;
         }
-        /* clear the flag first: an interrupt between the two steps must
-         * not restart RX */
-        _rx_enabled = false;
-        cc26x2_cc13x2_rf_rx_stop();
+        /* an interrupt between the steps must not restart RX */
+        unsigned key = irq_disable();
+
+        if (force) {
+            _rx_enabled = false;
+            _rx_abort();
+        }
+        else if (_rx_stop_unless_receiving() != 0) {
+            /* a frame is being received: RX stays on */
+            irq_restore(key);
+            return -EBUSY;
+        }
+        else {
+            _rx_enabled = false;
+        }
         _state = STATE_IDLE;
+        irq_restore(key);
         break;
     }
     case IEEE802154_HAL_OP_CCA:
         /* the carrier sense is a radio operation command too, RX must have
-         * ended before */
-        cc26x2_cc13x2_rf_rx_stop();
+         * ended before. During the reception of a frame the channel is
+         * busy without looking. */
+        if (_rx_stop_unless_receiving() != 0) {
+            _cca_result = CCA_RESULT_BUSY;
+            dev->cb(dev, IEEE802154_RADIO_CONFIRM_CCA);
+            return 0;
+        }
         _state = STATE_IDLE;
         _cca_result = CCA_RESULT_NONE;
         _cca_pending = true;
