@@ -100,18 +100,15 @@
  */
 #define CCA_CORR_THR            (3U)
 
-/** Value of the status byte appended to a received frame ([TRM] Table 25-79) */
-#define RX_STATUS_CORR_MASK     (0x3F)
-
 /**
  * @name    Receive buffers
  *
  * A general data entry holds one frame: a length byte, the PSDU without the
- * FCS, the RSSI and the status byte ([TRM] 25.5.3.1 and the `rxConfig` of
- * the receive command).
+ * FCS and the RSSI ([TRM] 25.5.3.1 and the `rxConfig` of the receive
+ * command).
  * @{
  */
-#define RX_APPENDED_LEN         (2U)
+#define RX_APPENDED_LEN         (1U)
 #define RX_ELEMENT_LEN          (1U + IEEE802154_FRAME_LEN_MAX - IEEE802154_FCS_LEN + \
                                  RX_APPENDED_LEN)
 #define RX_BUF_LEN              ((sizeof(rfc_data_entry_t) + RX_ELEMENT_LEN + 3U) & ~3U)
@@ -195,7 +192,7 @@ static rfc_cmd_set_tx_power_t _cmd_set_tx_power = {
  *
  * - Frames with a CRC error and frames rejected by the filter are removed
  *   from the queue, and the reception of a rejected frame stops at once.
- * - A stored frame has the RSSI and the status byte appended.
+ * - A stored frame has the RSSI appended.
  */
 static rfc_cmd_ieee_rx_t _cmd_rx = {
     .command_no = RFC_CMD_IEEE_RX,
@@ -205,7 +202,6 @@ static rfc_cmd_ieee_rx_t _cmd_rx = {
         .auto_flush_crc = 1,
         .auto_flush_ign = 1,
         .append_rssi = 1,
-        .append_corr_crc = 1,
     },
     .rx_queue = &_rx_queue,
     .output = &_rx_output,
@@ -694,10 +690,6 @@ static int _len(ieee802154_dev_t *dev)
     return len;
 }
 
-/*
- * The LQI is the correlation value the RF Core reports for the frame, 6 bits
- * in the status byte ([TRM] Table 25-79), spread over the range of the LQI.
- */
 static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
                  ieee802154_rx_info_t *info)
 {
@@ -723,8 +715,10 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
     }
     else {
         if (info != NULL) {
-            info->rssi = ieee802154_dbm_to_rssi((int8_t)psdu[len]);
-            info->lqi = (psdu[len + 1] & RX_STATUS_CORR_MASK) << 2;
+            int8_t rssi = (int8_t)psdu[len];
+
+            info->rssi = ieee802154_dbm_to_rssi(rssi);
+            info->lqi = cc26x2_cc13x2_rf_rssi_to_lqi(rssi);
             info->timestamp = 0;
         }
         memcpy(buf, psdu, len);

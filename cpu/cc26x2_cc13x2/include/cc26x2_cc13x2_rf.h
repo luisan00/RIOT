@@ -101,7 +101,7 @@
  * - CCA modes 1, 2 and 3 of the standard. The channel also counts as busy
  *   while a frame is being received, and that frame is not interrupted
  * - Interframe spacing after a transmission
- * - LQI from the correlation value of the RF Core, RSSI
+ * - RSSI, and the LQI derived from it as in the sub-GHz band
  * - TX power from the 2.4 GHz PA table of the board, up to 5 dBm
  * - Promiscuous mode
  *
@@ -138,6 +138,50 @@ extern "C" {
 #ifndef CC26X2_CC13X2_RF_TIMER
 #  define CC26X2_CC13X2_RF_TIMER TIMER_DEV(2)
 #endif
+
+/**
+ * @name    Range of the LQI
+ *
+ * The LQI of a frame is taken from its RSSI, one of the methods of IEEE Std
+ * 802.15.4-2024, 11.2.7: 0 and 255 stand for the weakest and the strongest
+ * signal, with the values in between spread evenly, here 3.2 per dB.
+ *
+ * The limits are the ones TI's 15.4-Stack has for its own conversion
+ * (`MAC_RADIO_RECEIVER_SENSITIVITY_DBM` and
+ * `MAC_RADIO_RECEIVER_SATURATION_DBM` in `mac_radio_defs.h` of the SimpleLink
+ * SDK). The upper one is also the maximum input level that the standard asks
+ * of the SUN FSK and O-QPSK PHYs.
+ *
+ * In the 2.4 GHz band the RF Core also gives a correlation value for each
+ * frame. It is not used: on a CC1352P1 it stayed the same from -34 dBm down
+ * to -95 dBm and only fell in the last 5 dB before frames were lost, at
+ * -100 dBm.
+ * @{
+ */
+#define CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM   (-100)  /**< RSSI of LQI 0 */
+#define CC26X2_CC13X2_RF_LQI_RSSI_MAX_DBM   (-20)   /**< RSSI of LQI 255 */
+/** @} */
+
+/**
+ * @brief   LQI of a frame received with a given RSSI
+ *
+ * @param[in]   rssi    RSSI in dBm; -128 if the RF Core had none
+ *
+ * @return  the LQI
+ */
+static inline uint8_t cc26x2_cc13x2_rf_rssi_to_lqi(int8_t rssi)
+{
+    /* this also covers -128, "no RSSI is available" (SWCU185G, 25.3.3.2.3) */
+    if (rssi <= CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM) {
+        return 0;
+    }
+    if (rssi >= CC26X2_CC13X2_RF_LQI_RSSI_MAX_DBM) {
+        return UINT8_MAX;
+    }
+
+    return ((rssi - CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM) * UINT8_MAX) /
+           (CC26X2_CC13X2_RF_LQI_RSSI_MAX_DBM - CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM);
+}
 
 /**
  * @brief   Initialize radio hardware (RF Core)
