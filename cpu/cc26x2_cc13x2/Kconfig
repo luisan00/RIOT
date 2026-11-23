@@ -38,24 +38,57 @@ choice
     bool "Sub-GHz frequency band"
     default CC26X2_CC13X2_RF_BAND_863
     help
-        Frequency band of the IEEE 802.15.4g MR-FSK PHY. Select the band that
-        is allowed where the device is used. The driver does not enforce any
-        regulation.
+        Frequency band of the IEEE 802.15.4 SUN FSK (MR-FSK) PHY. Select the
+        band that is allowed where the device is used. The driver does not
+        enforce any regulation.
 
 config CC26X2_CC13X2_RF_BAND_780
-    bool "779-787 MHz (China)"
+    bool "780 MHz: 779-787 MHz"
 
 config CC26X2_CC13X2_RF_BAND_863
-    bool "863-870 MHz (Europe)"
+    bool "863 MHz: 863-870 MHz (Europe)"
+
+config CC26X2_CC13X2_RF_BAND_866
+    bool "866 MHz: 865-868 MHz (India)"
+
+config CC26X2_CC13X2_RF_BAND_867
+    bool "867 MHz: 866-869 MHz (Singapore)"
+
+config CC26X2_CC13X2_RF_BAND_870
+    bool "870 MHz: 870-876 MHz (Europe)"
 
 config CC26X2_CC13X2_RF_BAND_915
-    bool "902-928 MHz (US)"
+    bool "915 MHz: 902-928 MHz (North America)"
+
+config CC26X2_CC13X2_RF_BAND_915_A
+    bool "915 MHz-a: 902-928 MHz, alternate (North America and Mexico)"
+
+config CC26X2_CC13X2_RF_BAND_915_B
+    bool "915 MHz-b: 902-907.5 and 915-928 MHz (Brazil)"
+
+config CC26X2_CC13X2_RF_BAND_915_C
+    bool "915 MHz-c: 915-928 MHz (Australia and New Zealand)"
+
+config CC26X2_CC13X2_RF_BAND_915_D
+    bool "915 MHz-d: 915-921 MHz (Europe)"
+
+config CC26X2_CC13X2_RF_BAND_915_E
+    bool "915 MHz-e: 915-918 MHz (Philippines)"
 
 config CC26X2_CC13X2_RF_BAND_917
-    bool "917-923.5 MHz (Korea)"
+    bool "917 MHz: 917-923.5 MHz"
+
+config CC26X2_CC13X2_RF_BAND_919
+    bool "919 MHz: 919-923 MHz (Malaysia)"
 
 config CC26X2_CC13X2_RF_BAND_920
-    bool "920-928 MHz (Japan)"
+    bool "920 MHz: 920-928 MHz (Japan)"
+
+config CC26X2_CC13X2_RF_BAND_920_A
+    bool "920 MHz-a: 920.5-924.5 MHz (China)"
+
+config CC26X2_CC13X2_RF_BAND_920_B
+    bool "920 MHz-b: 920-925 MHz (Hong Kong, Singapore, Thailand, Vietnam)"
 
 endchoice
 
@@ -67,26 +100,65 @@ config CC26X2_CC13X2_RF_SUN_PHY_FREQ
     default 7 if CC26X2_CC13X2_RF_BAND_915
     default 8 if CC26X2_CC13X2_RF_BAND_917
     default 9 if CC26X2_CC13X2_RF_BAND_920
+    default 14 if CC26X2_CC13X2_RF_BAND_866
+    default 15 if CC26X2_CC13X2_RF_BAND_870
+    default 16 if CC26X2_CC13X2_RF_BAND_915_A
+    default 17 if CC26X2_CC13X2_RF_BAND_915_B
+    default 18 if CC26X2_CC13X2_RF_BAND_915_C
+    default 19 if CC26X2_CC13X2_RF_BAND_915_D
+    default 20 if CC26X2_CC13X2_RF_BAND_915_E
+    default 21 if CC26X2_CC13X2_RF_BAND_919
+    default 22 if CC26X2_CC13X2_RF_BAND_920_A
+    default 23 if CC26X2_CC13X2_RF_BAND_920_B
+    default 24 if CC26X2_CC13X2_RF_BAND_867
+
+config CC26X2_CC13X2_RF_863_COMPAT
+    bool "863 MHz: channel plan of TI's 15.4-Stack and the AT86RF215 driver"
+    depends on CC26X2_CC13X2_RF_BAND_863
+    help
+        Only for compatibility with those radios: this is not the channel
+        plan of the standard. Channel 0 is at 863.125 MHz with 200 kHz
+        spacing and at 863.225 MHz with 400 kHz spacing, where the standard
+        has 863.1 MHz with 100 kHz and 200 kHz spacing. A node with this
+        option and a node without it do not hear each other.
 
 choice
     bool "Sub-GHz channel spacing"
     default CC26X2_CC13X2_RF_CHAN_SPACING_200
     help
         Channel spacing of the MR-FSK PHY. The channel plan of the selected
-        band follows from it (channel 0 and number of channels).
+        band follows from it (channel 0 and channel numbers). The standard
+        ties the spacing to the operating mode: select the one of the mode
+        that is going to be used. Only the spacings of the selected band are
+        offered.
+
+config CC26X2_CC13X2_RF_CHAN_SPACING_100
+    bool "100 kHz"
+    depends on (CC26X2_CC13X2_RF_BAND_863 && !CC26X2_CC13X2_RF_863_COMPAT) || \
+               CC26X2_CC13X2_RF_BAND_866 || CC26X2_CC13X2_RF_BAND_867 || \
+               CC26X2_CC13X2_RF_BAND_870
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_200
     bool "200 kHz"
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_400
     bool "400 kHz"
+    depends on (!CC26X2_CC13X2_RF_BAND_863 || CC26X2_CC13X2_RF_863_COMPAT) && \
+               !CC26X2_CC13X2_RF_BAND_866 && !CC26X2_CC13X2_RF_BAND_870 && \
+               !CC26X2_CC13X2_RF_BAND_920_A
+
+config CC26X2_CC13X2_RF_CHAN_SPACING_600
+    bool "600 kHz"
+    depends on CC26X2_CC13X2_RF_BAND_920
 
 endchoice
 
 config CC26X2_CC13X2_RF_CHAN_SPACING_KHZ
     int
+    default 100 if CC26X2_CC13X2_RF_CHAN_SPACING_100
     default 200 if CC26X2_CC13X2_RF_CHAN_SPACING_200
     default 400 if CC26X2_CC13X2_RF_CHAN_SPACING_400
+    default 600 if CC26X2_CC13X2_RF_CHAN_SPACING_600
 
 config CC26X2_CC13X2_RF_PA20
     bool "Use the 20 dBm PA for TX powers above the standard PA"

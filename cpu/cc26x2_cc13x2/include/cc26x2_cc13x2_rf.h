@@ -37,8 +37,18 @@
  *
  * The band and the channel spacing are build-time options, see
  * @ref CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ and
- * @ref CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ. The bands are 780 MHz,
- * 863 MHz (the default), 915 MHz, 917 MHz and 920 MHz.
+ * @ref CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ. The bands are those of the
+ * SUN FSK PHY between 770 and 930 MHz: 780 MHz, 863 MHz (the default),
+ * 866 MHz, 867 MHz, 870 MHz, 915 MHz and its regional variants 915 MHz-a to
+ * 915 MHz-e, 917 MHz, 919 MHz, 920 MHz, 920 MHz-a and 920 MHz-b. Channel
+ * numbers and frequencies follow IEEE Std 802.15.4-2024. The 863 MHz band
+ * also has a plan outside the standard, the one of TI's 15.4-Stack and of
+ * RIOT's AT86RF215 driver, for compatibility with those radios: see
+ * @ref CONFIG_CC26X2_CC13X2_RF_863_COMPAT.
+ *
+ * Some bands do not start at channel 0. The channel the stack starts on,
+ * @ref CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL, has to be a channel of the
+ * band: with the SubMAC the build fails if it is not.
  *
  * ## Features
  *

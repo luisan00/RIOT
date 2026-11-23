@@ -58,6 +58,22 @@
  */
 #define IFS_US              (1000U)
 
+#if IS_USED(MODULE_IEEE802154_SUBMAC)
+/* The SubMAC starts the radio on this channel. Some bands do not have the
+ * default one (they do not start at channel 0), and then the SubMAC could not
+ * configure the PHY at all. */
+#  if (CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL < CC26X2_CC13X2_RF_CHAN_MIN) || \
+      (CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL > CC26X2_CC13X2_RF_CHAN_MAX)
+#    error "CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL is not a channel of the band"
+#  endif
+#  ifdef CC26X2_CC13X2_RF_CHAN_GAP_MIN
+#    if (CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL >= CC26X2_CC13X2_RF_CHAN_GAP_MIN) && \
+        (CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL <= CC26X2_CC13X2_RF_CHAN_GAP_MAX)
+#      error "CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL is not a channel of the band"
+#    endif
+#  endif
+#endif
+
 static const ieee802154_radio_ops_t cc26x2_cc13x2_rf_ops;
 static ieee802154_dev_t *cc26x2_cc13x2_rf_hal;
 

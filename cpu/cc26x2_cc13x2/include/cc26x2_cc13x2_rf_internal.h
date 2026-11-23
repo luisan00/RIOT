@@ -25,6 +25,7 @@
 #include "iolist.h"
 #include "byteorder.h"
 #include "macros/units.h"
+#include "modules.h"
 #include "net/ieee802154.h"
 
 #include "cc26xx_cc13xx_rfc_common_cmd.h"
@@ -46,27 +47,42 @@ extern "C" {
 
 /* XXX: shouldn't this reside on net/ieee802154.h */
 /**
- * @name    SUN PHY frequency band definitions
+ * @name    SUN PHY frequency band identifiers
  *
- * These are the frequency band identifiers for the SUN PHY.
- *
- * @see IEEE Std 802.154.g-2012, Table 68f
+ * @see IEEE Std 802.15.4-2024, Table 10-73 and Table 10-74. Identifier 11
+ *      names the 920 MHz band a second time there. The regions are those of
+ *      Annex F of the standard, where it lists the band.
  * @{
  */
-#define IEEE802154_SUN_PHY_FREQ_169_MHZ     0   /**< 169.400-169.475 (Europe) */
-#define IEEE802154_SUN_PHY_FREQ_450_MHZ     1   /**< 450-470 (US FCC Part 22/90) */
+#define IEEE802154_SUN_PHY_FREQ_169_MHZ     0   /**< 169.400-169.475 */
+#define IEEE802154_SUN_PHY_FREQ_450_MHZ     1   /**< 450-470 */
 #define IEEE802154_SUN_PHY_FREQ_470_MHZ     2   /**< 470-510 (China) */
-#define IEEE802154_SUN_PHY_FREQ_780_MHZ     3   /**< 779-787 (China) */
+#define IEEE802154_SUN_PHY_FREQ_780_MHZ     3   /**< 779-787 */
 #define IEEE802154_SUN_PHY_FREQ_863_MHZ     4   /**< 863-870 (Europe) */
-#define IEEE802154_SUN_PHY_FREQ_896_MHZ     5   /**< 896-901 (US FCC Part 90) */
-#define IEEE802154_SUN_PHY_FREQ_901_MHZ     6   /**< 901-902 (US FCC Part 24) */
-#define IEEE802154_SUN_PHY_FREQ_915_MHZ     7   /**< 902-928 (US) */
-#define IEEE802154_SUN_PHY_FREQ_917_MHZ     8   /**< 917-923.5 (Korea) */
+#define IEEE802154_SUN_PHY_FREQ_896_MHZ     5   /**< 896-901 */
+#define IEEE802154_SUN_PHY_FREQ_901_MHZ     6   /**< 901-902 */
+#define IEEE802154_SUN_PHY_FREQ_915_MHZ     7   /**< 902-928 (North America) */
+#define IEEE802154_SUN_PHY_FREQ_917_MHZ     8   /**< 917-923.5 */
 #define IEEE802154_SUN_PHY_FREQ_920_MHZ     9   /**< 920-928 (Japan) */
-#define IEEE802154_SUN_PHY_FREQ_928_MHZ     10  /**< 928-960 (US, non-contiguous) */
-#define IEEE802154_SUN_PHY_FREQ_950_MHZ     11  /**< 950-958 (Japan) */
-#define IEEE802154_SUN_PHY_FREQ_1427_MHZ    12  /**< 1427-1518 (US and Canada, non-contiguous) */
+#define IEEE802154_SUN_PHY_FREQ_928_MHZ     10  /**< 928-960, non-contiguous */
+#define IEEE802154_SUN_PHY_FREQ_1427_MHZ    12  /**< 1427-1518, non-contiguous */
 #define IEEE802154_SUN_PHY_FREQ_2450_MHZ    13  /**< 2400-2483.5 */
+#define IEEE802154_SUN_PHY_FREQ_866_MHZ     14  /**< 865-868 (India) */
+#define IEEE802154_SUN_PHY_FREQ_870_MHZ     15  /**< 870-876 (Europe) */
+#define IEEE802154_SUN_PHY_FREQ_915_A_MHZ   16  /**< 902-928, alternate (North
+                                                     America and Mexico) */
+#define IEEE802154_SUN_PHY_FREQ_915_B_MHZ   17  /**< 902-907.5 and 915-928
+                                                     (Brazil) */
+#define IEEE802154_SUN_PHY_FREQ_915_C_MHZ   18  /**< 915-928 (Australia and New
+                                                     Zealand) */
+#define IEEE802154_SUN_PHY_FREQ_915_D_MHZ   19  /**< 915-921 (Europe) */
+#define IEEE802154_SUN_PHY_FREQ_915_E_MHZ   20  /**< 915-918 (Philippines) */
+#define IEEE802154_SUN_PHY_FREQ_919_MHZ     21  /**< 919-923 (Malaysia) */
+#define IEEE802154_SUN_PHY_FREQ_920_A_MHZ   22  /**< 920.5-924.5 (China) */
+#define IEEE802154_SUN_PHY_FREQ_920_B_MHZ   23  /**< 920-925 (Hong Kong,
+                                                     Singapore, Thailand and
+                                                     Vietnam) */
+#define IEEE802154_SUN_PHY_FREQ_867_MHZ     24  /**< 866-869 (Singapore) */
 /** @} */
 
 /**
@@ -76,22 +92,41 @@ extern "C" {
  * The driver implements the 2-FSK modes of the MR-FSK PHY listed in
  * cc26x2_cc13x2_rf_set_fsk_mode(), with the radio settings that TI gives for
  * the 770 to 930 MHz RF front end of the CC1312R1, CC1352R1 and CC1352P1
- * LaunchPads. These bands have channel plans inside that range:
+ * LaunchPads. These bands have channel plans inside that range. Each plan is
+ * given as the frequency of channel 0 and the channel numbers of the band,
+ * for a channel spacing (IEEE Std 802.15.4-2024, Table 11-14):
  *
- * | Identifier                        | Band          | 200 kHz plan      | 400 kHz plan     |
- * |:--------------------------------- |:------------- |:----------------- |:---------------- |
- * | `IEEE802154_SUN_PHY_FREQ_780_MHZ` | 779-787 MHz   | 779.200 MHz, 39   | 779.400 MHz, 19  |
- * | `IEEE802154_SUN_PHY_FREQ_863_MHZ` | 863-870 MHz   | 863.125 MHz, 34   | 863.225 MHz, 17  |
- * | `IEEE802154_SUN_PHY_FREQ_915_MHZ` | 902-928 MHz   | 902.200 MHz, 129  | 902.400 MHz, 64  |
- * | `IEEE802154_SUN_PHY_FREQ_917_MHZ` | 917-923.5 MHz | 917.100 MHz, 32   | 917.300 MHz, 16  |
- * | `IEEE802154_SUN_PHY_FREQ_920_MHZ` | 920-928 MHz   | 920.600 MHz, 38   | 920.900 MHz, 18  |
+ * | Band  | 100 kHz           | 200 kHz                  | 400 kHz                  | 600 kHz           |
+ * |:----- |:----------------- |:------------------------ |:------------------------ |:----------------- |
+ * | 780   |                   | 779.2 MHz, 0-38          | 779.4 MHz, 0-18          |                   |
+ * | 863   | 863.1 MHz, 0-68   | 863.1 MHz, 0-34          |                          |                   |
+ * | 866   | 865.1 MHz, 0-28   | 865.1 MHz, 0-14          |                          |                   |
+ * | 867   | 863.1 MHz, 30-58  | 863.1 MHz, 15-29         | 863.2 MHz, 8-14          |                   |
+ * | 870   | 870.1 MHz, 0-58   | 870.2 MHz, 0-28          |                          |                   |
+ * | 915   |                   | 902.2 MHz, 0-128         | 902.4 MHz, 0-63          |                   |
+ * | 915-a |                   | 902.2 MHz, 0-128         | 902.4 MHz, 0-63          |                   |
+ * | 915-b |                   | 902.2 MHz, 0-26, 65-128  | 902.4 MHz, 0-12, 32-63   |                   |
+ * | 915-c |                   | 902.2 MHz, 65-128        | 902.4 MHz, 32-63         |                   |
+ * | 915-d |                   | 902.2 MHz, 65-93         | 902.4 MHz, 32-46         |                   |
+ * | 915-e |                   | 902.2 MHz, 65-78         | 902.4 MHz, 32-38         |                   |
+ * | 917   |                   | 917.1 MHz, 0-31          | 917.3 MHz, 0-15          |                   |
+ * | 919   |                   | 902.2 MHz, 85-103        | 902.4 MHz, 42-51         |                   |
+ * | 920   |                   | 920.6 MHz, 0-37          | 920.9 MHz, 0-17          | 920.8 MHz, 0-11   |
+ * | 920-a |                   | 902.2 MHz, 92-111        |                          |                   |
+ * | 920-b |                   | 902.2 MHz, 90-113        | 902.4 MHz, 45-56         |                   |
  *
- * Each plan gives the frequency of channel 0 and the number of channels. The
- * channel spacing is selected with #CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ.
+ * The 867 MHz band uses the channel numbers of the 863 MHz band, and the
+ * 915 MHz-a to 915 MHz-e, 919 MHz, 920 MHz-a and 920 MHz-b bands those of the
+ * 915 MHz band, so their first channel is not channel 0. The channel spacing
+ * is selected with #CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ.
  *
- * The other bands are not available. The 470 MHz and 950 MHz bands are
- * outside the range of the RF front end, and the 2450 MHz band uses the
- * 2.4 GHz RF path, which this driver does not handle.
+ * For the 863 MHz band there is also a plan that is not in the standard, for
+ * compatibility with other radios, see #CONFIG_CC26X2_CC13X2_RF_863_COMPAT.
+ *
+ * The other bands are not available. The 169 MHz, 450 MHz and 470 MHz bands
+ * are outside the range of the RF front end, the modes of the 896 MHz,
+ * 901 MHz and 928 MHz bands are not implemented, and the 2450 MHz band uses
+ * the 2.4 GHz RF path, which this driver does not handle.
  *
  * Pick the band that is allowed where the device is used: the driver does not
  * check any regulation, neither the band nor duty cycle or channel limits.
@@ -106,19 +141,56 @@ extern "C" {
 #endif
 
 /**
- * @brief   Channel spacing in kHz, 200 or 400
+ * @brief   Channel spacing in kHz: 100, 200, 400 or 600
  *
- * IEEE 802.15.4g ties the spacing to the operating mode of each band, and
- * Wi-SUN uses other pairs again (for example 150 kbit/s on a 200 kHz plan in
- * Europe and on a 400 kHz plan in North America). The radio HAL has no field
- * for it, so the spacing is chosen at build time, independent of the mode
- * set with config_phy.
+ * The standard ties the spacing to the operating mode of each band (IEEE Std
+ * 802.15.4-2024, Table 11-14 with Tables 20-7, 20-8 and 20-10). The radio
+ * HAL has no field for it, so the spacing is chosen at build time,
+ * independent of the mode set with config_phy: pick the one of the mode that
+ * is going to be used. These are the modes of the standard that the driver
+ * implements, as symbol rate in ksym/s and modulation index:
+ *
+ * | Band                       | 100 kHz | 200 kHz                   | 400 kHz                   | 600 kHz          |
+ * |:-------------------------- |:------- |:------------------------- |:------------------------- |:---------------- |
+ * | 780                        |         | 50/1.0                    | 100/1.0                   |                  |
+ * | 863, 866, 870              | 50/0.5  | 100/0.5, 150/0.5          |                           |                  |
+ * | 867                        | 50/0.5  | 100/0.5, 150/0.5          | 200/0.5, 300/0.5          |                  |
+ * | 915, 917                   |         | 50/1.0                    | 150/0.5, 200/0.5          |                  |
+ * | 915-a to 915-e, 919, 920-b |         | 50/1.0, 100/0.5, 150/0.5  | 200/0.5, 300/0.5          |                  |
+ * | 920                        |         | 50/1.0                    | 100/1.0, 150/0.5, 300/0.5 | 200/1.0, 300/0.5 |
+ * | 920-a                      |         | 50/1.0, 100/0.5, 150/0.5  |                           |                  |
+ *
+ * The build fails if the band has no plan for the spacing.
  *
  * The default is 200 kHz. With Kconfig it is chosen in the "Sub-GHz channel
  * spacing" menu of the CPU.
  */
 #ifndef CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ
 #  define CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ   (200U)
+#endif
+
+/**
+ * @brief   In the 863 MHz band, use the channel plan of TI's 15.4-Stack and
+ *          of RIOT's AT86RF215 driver instead of the one of the standard
+ *
+ * This option is only there for compatibility with those radios. Their plan
+ * is not the one the standard gives to the SUN FSK PHY in this band:
+ *
+ * | Channel spacing | Standard          | With this option  |
+ * |:--------------- |:----------------- |:----------------- |
+ * | 100 kHz         | 863.1 MHz, 0-68   | not available     |
+ * | 200 kHz         | 863.1 MHz, 0-34   | 863.125 MHz, 0-33 |
+ * | 400 kHz         | not available     | 863.225 MHz, 0-16 |
+ *
+ * The channels of the two plans are 25 kHz apart, so a node with this option
+ * and a node without it do not hear each other. The plan comes from
+ * `ti154stack_rf_config_common.js` of the SimpleLink SDK and from
+ * `drivers/at86rf215/at86rf215_fsk.c`.
+ *
+ * It is off by default and can only be used with the 863 MHz band.
+ */
+#ifdef DOXYGEN
+#  define CONFIG_CC26X2_CC13X2_RF_863_COMPAT
 #endif
 
 /**
@@ -141,18 +213,10 @@ extern "C" {
 /**
  * @name    SUN PHY channel information
  *
- * The frequency of channel `n` is `CHAN_CENTER_FREQ0 + n * CHAN_SPACING`.
- *
- * Sources of the plans:
- *
- * - 863 MHz: TI's 15.4-Stack (`ti154stack_rf_config_common.js` in the
- *   SimpleLink SDK) for both plans, and RIOT's at86rf215 driver.
- * - 915 MHz: TI's 15.4-Stack for the 200 kHz plan and TI's Wi-SUN stack
- *   (`ti_wisunfan_rf_config_common.js`, `902_928_400`) for the 400 kHz plan.
- * - 920 MHz: TI's Wi-SUN stack, `920_928_200` and `920_928_400`.
- * - 780 MHz and 917 MHz: the SDK has no table. The plans come from two other
- *   implementations of the same PHY: the Contiki-NG driver for this MCU
- *   (200 kHz) and the regulatory table of wisun-br-linux (both spacings).
+ * The frequency of channel `n` is `CHAN_CENTER_FREQ0 + n * CHAN_SPACING`
+ * (IEEE Std 802.15.4-2024, 11.1.3.9), and the channels of the band are
+ * `CHAN_MIN` to `CHAN_MAX`, see cc26x2_cc13x2_rf_chan_is_valid(). The values
+ * are those of Table 11-14 of the standard.
  *
  * `CC26X2_CC13X2_RF_CENTER_FREQ` is the center frequency of the band in MHz,
  * for the `centerFreq` field of CMD_PROP_RADIO_DIV_SETUP.
@@ -162,10 +226,13 @@ extern "C" {
  * (`getLoDivider()` in `radioconfig/.meta/parameter_handler.js` of the SDK).
  * @{
  */
-/** @brief   Lowest channel number */
-#define CC26X2_CC13X2_RF_CHAN_MIN               (0)
 /** @brief   Channel spacing in Hz */
 #define CC26X2_CC13X2_RF_CHAN_SPACING           KHZ(CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ)
+
+#if IS_ACTIVE(CONFIG_CC26X2_CC13X2_RF_863_COMPAT) && \
+    (CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ != IEEE802154_SUN_PHY_FREQ_863_MHZ)
+#  error "CONFIG_CC26X2_CC13X2_RF_863_COMPAT: only for the 863 MHz band"
+#endif
 
 #if CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_780_MHZ
 /** @brief   Center frequency of the band in MHz */
@@ -173,60 +240,197 @@ extern "C" {
 /** @brief   LO divider of the band */
 #  define CC26X2_CC13X2_RF_LO_DIVIDER           (6U)
 #  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
-/** @brief   Highest channel number */
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (38)
 /** @brief   Center frequency of channel 0 in Hz */
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(779200)
+/** @brief   Lowest channel number of the band */
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+/** @brief   Highest channel number of the band */
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (38)
 #  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (18)
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(779400)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (18)
 #  endif
 #elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_863_MHZ
 #  define CC26X2_CC13X2_RF_CENTER_FREQ          (868U)
-#  define CC26X2_CC13X2_RF_LO_DIVIDER           (5U)
-#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (33)
-#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863125)
-#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (16)
-#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863225)
+#  if IS_ACTIVE(CONFIG_CC26X2_CC13X2_RF_863_COMPAT)
+/* not the plan of the standard, see CONFIG_CC26X2_CC13X2_RF_863_COMPAT */
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863125)
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (33)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863225)
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (16)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 100
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (68)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (34)
 #  endif
-#elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_MHZ
-#  define CC26X2_CC13X2_RF_CENTER_FREQ          (915U)
-#  define CC26X2_CC13X2_RF_LO_DIVIDER           (5U)
-#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (128)
-#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(902200)
+#elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_866_MHZ
+#  define CC26X2_CC13X2_RF_CENTER_FREQ          (867U)
+#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 100
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(865100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (28)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(865100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (14)
+#  endif
+#elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_867_MHZ
+#  define CC26X2_CC13X2_RF_CENTER_FREQ          (868U)
+#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 100
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (30)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (58)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (15)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (29)
 #  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (63)
-#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(902400)
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(863200)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (8)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (14)
+#  endif
+#elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_870_MHZ
+#  define CC26X2_CC13X2_RF_CENTER_FREQ          (873U)
+#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 100
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(870100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (58)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(870200)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (28)
 #  endif
 #elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_917_MHZ
 #  define CC26X2_CC13X2_RF_CENTER_FREQ          (920U)
-#  define CC26X2_CC13X2_RF_LO_DIVIDER           (5U)
 #  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (31)
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(917100)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (31)
 #  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (15)
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(917300)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (15)
 #  endif
 #elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_920_MHZ
 #  define CC26X2_CC13X2_RF_CENTER_FREQ          (924U)
-#  define CC26X2_CC13X2_RF_LO_DIVIDER           (5U)
 #  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (37)
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(920600)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (37)
 #  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
-#    define CC26X2_CC13X2_RF_CHAN_MAX           (17)
 #    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(920900)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (17)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 600
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(920800)
+#    define CC26X2_CC13X2_RF_CHAN_MIN           (0)
+#    define CC26X2_CC13X2_RF_CHAN_MAX           (11)
 #  endif
 #else
-#  error "CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ: frequency band not supported"
+/* The remaining bands use the channel numbers of the 915 MHz band */
+#  if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(902200)
+#  elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#    define CC26X2_CC13X2_RF_CHAN_CENTER_FREQ0  KHZ(902400)
+#  endif
+#  if (CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_MHZ) || \
+      (CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_A_MHZ)
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (915U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (128)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (63)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_B_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (915U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (128)
+/** @brief   First channel of the part of the range that is not in the band */
+#      define CC26X2_CC13X2_RF_CHAN_GAP_MIN     (27)
+/** @brief   Last channel of the part of the range that is not in the band */
+#      define CC26X2_CC13X2_RF_CHAN_GAP_MAX     (64)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (0)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (63)
+#      define CC26X2_CC13X2_RF_CHAN_GAP_MIN     (13)
+#      define CC26X2_CC13X2_RF_CHAN_GAP_MAX     (31)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_C_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (922U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (65)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (128)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (32)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (63)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_D_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (918U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (65)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (93)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (32)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (46)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_915_E_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (917U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (65)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (78)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (32)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (38)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_919_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (921U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (85)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (103)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (42)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (51)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_920_A_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (923U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (92)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (111)
+#    endif
+#  elif CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ == IEEE802154_SUN_PHY_FREQ_920_B_MHZ
+#    define CC26X2_CC13X2_RF_CENTER_FREQ        (923U)
+#    if CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 200
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (90)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (113)
+#    elif CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ == 400
+#      define CC26X2_CC13X2_RF_CHAN_MIN         (45)
+#      define CC26X2_CC13X2_RF_CHAN_MAX         (56)
+#    endif
+#  else
+#    error "CONFIG_CC26X2_CC13X2_RF_SUN_PHY_FREQ: frequency band not supported"
+#  endif
 #endif
 
 #ifndef CC26X2_CC13X2_RF_CHAN_MAX
-#  error "CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ: must be 200 or 400"
+#  error "CONFIG_CC26X2_CC13X2_RF_CHAN_SPACING_KHZ: the band has no plan for it"
+#endif
+
+#ifndef CC26X2_CC13X2_RF_LO_DIVIDER
+/* every band from 863 MHz up */
+#  define CC26X2_CC13X2_RF_LO_DIVIDER           (5U)
 #endif
 /** @} */
 
@@ -260,6 +464,30 @@ extern "C" {
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
 #define ALIGN_TO_4(size) (((size) + 3) & ~3)
+
+/**
+ * @brief   Check that a channel number is one of the selected band
+ *
+ * @param[in]   chan    channel number
+ *
+ * @return  true if the channel belongs to the band
+ */
+static inline bool cc26x2_cc13x2_rf_chan_is_valid(uint16_t chan)
+{
+    /* signed, as the lowest channel is 0 in most bands */
+    const int num = chan;
+
+    if ((num < CC26X2_CC13X2_RF_CHAN_MIN) || (num > CC26X2_CC13X2_RF_CHAN_MAX)) {
+        return false;
+    }
+#ifdef CC26X2_CC13X2_RF_CHAN_GAP_MIN
+    if ((num >= CC26X2_CC13X2_RF_CHAN_GAP_MIN) &&
+        (num <= CC26X2_CC13X2_RF_CHAN_GAP_MAX)) {
+        return false;
+    }
+#endif
+    return true;
+}
 
 /**
  * @brief   Get center frequency of a channel

@@ -1645,12 +1645,9 @@ int cc26x2_cc13x2_rf_set_fsk_mode(ieee802154_mr_fsk_srate_t srate, uint8_t mod_i
  */
 int cc26x2_cc13x2_rf_change_chan(uint16_t channel)
 {
-    const uint16_t min_chan = CC26X2_CC13X2_RF_CHAN_MIN;
-    const uint16_t max_chan = CC26X2_CC13X2_RF_CHAN_MAX;
     uint32_t cmdsta;
 
-    if (!(channel >= min_chan &&
-          channel <= max_chan)) {
+    if (!cc26x2_cc13x2_rf_chan_is_valid(channel)) {
         DEBUG("[cc26x2_cc13x2_rf]: invalid channel value=%u\n", channel);
         return -EINVAL;
     }
