@@ -22,8 +22,11 @@
 #include <errno.h>
 #include <string.h>
 
+#include "irq.h"
 #include "net/ieee802154/radio.h"
 #include "periph/timer.h"
+#include "random.h"
+#include "ztimer.h"
 
 #include "cc26x2_cc13x2_rf.h"
 #include "cc26x2_cc13x2_rf_internal.h"
@@ -58,6 +61,22 @@
  */
 #define IFS_US              (1000U)
 
+/**
+ * @brief   Backoff period of CSMA-CA, in microseconds
+ *
+ * IEEE Std 802.15.4-2024, 6.3.2.1 and Table 8-36: macUnitBackoffPeriod is
+ * aTurnaroundTime plus phyCcaDuration, 1 ms and 8 symbol periods of 20 us
+ * for the SUN FSK PHY in the bands of this driver. It is the period the
+ * SubMAC uses when it does the backoffs.
+ */
+#define CSMA_BACKOFF_PERIOD_US  (IEEE802154G_ATURNAROUNDTIME_US + \
+                                 IEEE802154_CCA_DURATION_IN_SYMBOLS * \
+                                 IEEE802154_MR_FSK_SYMBOL_TIME_US)
+
+/** Highest backoff exponent that is accepted, the maximum of macMaxBe
+ *  (IEEE Std 802.15.4-2024, Table 8-36) */
+#define CSMA_BE_MAX         (8U)
+
 #if IS_USED(MODULE_IEEE802154_SUBMAC)
 /* The SubMAC starts the radio on this channel. Some bands do not have the
  * default one (they do not start at channel 0), and then the SubMAC could not
@@ -90,13 +109,40 @@ static struct {
     bool promisc  : 1; /**< whether the device is in promiscuous mode */
     bool auto_ack : 1; /**< whether the radio sends ACKs automatically */
     bool ifs      : 1; /**< whether the radio is in IFS mode */
-    bool cca_send : 1; /**< whether a CCA is done before a transmission */
 } _cfg = {
     .promisc  = false,
     .auto_ack = true,
     .ifs      = false,
-    .cca_send = true,
 };
+
+/**
+ * CSMA-CA parameters, see _set_csma_params(): a negative number of retries
+ * sends a frame at once, 0 after one CCA, and a positive number runs the
+ * unslotted CSMA-CA algorithm, where it is macMaxCsmaBackoffs.
+ */
+static struct {
+    int8_t retries;
+    uint8_t min_be;
+    uint8_t max_be;
+} _csma_conf = {
+    .retries = 0,
+    .min_be = CONFIG_IEEE802154_DEFAULT_CSMA_CA_MIN_BE,
+    .max_be = CONFIG_IEEE802154_DEFAULT_CSMA_CA_MAX_BE,
+};
+
+/** A transmission with CSMA-CA is under way and its frame is not on the air
+ *  yet: a backoff runs or is over, see _csma_backoff() */
+static volatile bool _csma_active;
+
+/** The backoff is over, but the CCA has to wait for an ACK that is being
+ *  sent or for the IFS */
+static volatile bool _csma_due;
+
+static uint8_t _csma_nb;    /**< NB of the algorithm: backoffs so far */
+static uint8_t _csma_be;    /**< BE of the algorithm: backoff exponent */
+
+static void _csma_timer_cb(void *arg);
+static ztimer_t _csma_timer = { .callback = _csma_timer_cb };
 
 static uint8_t _ack[ACK_PSDU_LEN];
 
@@ -147,7 +193,10 @@ static volatile bool _tx_report;
 static volatile bool _rx_stopping;
 
 static void _rx_abort(void);
+static int _rx_stop_unless_receiving(void);
 static bool _ack_pending(void);
+static void _csma_attempt(ieee802154_dev_t *dev);
+static void _csma_busy(ieee802154_dev_t *dev);
 
 static volatile int _tx_result = -EAGAIN;
 
@@ -292,13 +341,15 @@ static bool _op_pending(void)
     return _tx_running() || _cca_pending;
 }
 
-/* Restart RX if the upper layer asked for it and it is not running. Only one
- * radio operation command runs at a time: not while a transmission, an ACK
- * or a CCA is under way, RX is restored when they end. */
+/* Restart RX if it is not running and it is wanted: the upper layer asked
+ * for it, or a transmission is in the backoff of CSMA-CA, during which the
+ * radio listens. Only one radio operation command runs at a time: not while
+ * a transmission, an ACK or a CCA is under way, RX is restored when they
+ * end. */
 static void _restore_rx(void)
 {
-    if (_rx_enabled && (_tx_state == TX_STATE_IDLE) && !_cca_pending &&
-        (cc26x2_cc13x2_rf_rx_start() == 0)) {
+    if ((_rx_enabled || _csma_active) && (_tx_state == TX_STATE_IDLE) &&
+        !_cca_pending && (cc26x2_cc13x2_rf_rx_start() == 0) && _rx_enabled) {
         _state = STATE_RX;
     }
 }
@@ -359,6 +410,132 @@ static void _ack_done(ieee802154_dev_t *dev, bool sent)
     if (_rx_enabled) {
         dev->cb(dev, IEEE802154_RADIO_INDICATION_RX_DONE);
     }
+    /* a backoff that ended meanwhile; with the IFS it goes on when that
+     * is over */
+    if (_csma_due && !_cfg.ifs) {
+        _csma_attempt(dev);
+    }
+}
+
+/*
+ * Submits the transmission of the frame of the upper layer. RX must have
+ * ended before, only one radio operation command runs at a time. With CCA a
+ * frame that is being received counts as a busy channel and is left alone.
+ *
+ * Returns 0 if the RF Core took the commands, 1 if a frame is being received
+ * or has just been received and nothing was started, and a negative errno on
+ * error.
+ */
+static int _tx_submit(void)
+{
+    int res;
+
+    if (!_tx_cca) {
+        _rx_abort();
+    }
+    else if (_rx_stop_unless_receiving() != 0) {
+        return 1;
+    }
+    else if (cc26x2_cc13x2_rf_rx_next() != NULL) {
+        /* A frame has just come in and its interrupt is still to be served:
+         * it may need its ACK now. A transmission would hold that ACK back
+         * until the sender has given up and sent the frame again. */
+        _restore_rx();
+        return 1;
+    }
+
+    _tx_state = TX_STATE_TX;
+    RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
+    RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
+
+    if ((res = cc26x2_cc13x2_rf_request_transmit(_tx_cca, _tx_wait_ack)) != 0) {
+        DEBUG("[cc26x2_cc13x2_rf]: failed to transmit\n");
+        RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
+        _tx_state = TX_STATE_IDLE;
+        _restore_rx();
+    }
+
+    return res;
+}
+
+/*
+ * Unslotted CSMA-CA, IEEE Std 802.15.4-2024, 6.3.2.1 and Figure 6-2: wait a
+ * random number of backoff periods from 0 to 2^BE - 1, then do a CCA. On a
+ * clear channel the frame is sent. On a busy one NB and BE grow by one, BE
+ * up to its maximum, and the next backoff starts, until NB is above the
+ * number of retries: the transmission then ends with a busy medium.
+ *
+ * The radio listens during the backoff. The standard leaves that open, and
+ * with the radio off two nodes that have frames for each other would both
+ * send while the other one cannot hear. A frame that comes in is taken as
+ * any other, see _rx_entry(): the upper layer gets it after this
+ * transmission.
+ */
+static void _csma_backoff(void)
+{
+    uint32_t periods = random_uint32_range(0, 1UL << _csma_be);
+
+    _csma_due = false;
+    _restore_rx();
+    ztimer_set(ZTIMER_USEC, &_csma_timer, periods * CSMA_BACKOFF_PERIOD_US);
+}
+
+/* The CCA found a busy channel, or a frame was coming in when it was due */
+static void _csma_busy(ieee802154_dev_t *dev)
+{
+    if (++_csma_nb > _csma_conf.retries) {
+        _csma_active = false;
+        _tx_result = -EBUSY;
+        dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
+        return;
+    }
+    if (_csma_be < _csma_conf.max_be) {
+        _csma_be++;
+    }
+    _csma_backoff();
+}
+
+/*
+ * The backoff is over: CCA and, on a clear channel, the frame, see
+ * cc26x2_cc13x2_rf_request_transmit(). While the ACK of a received frame is
+ * due or on the air, and during the IFS after it, this waits: _ack_done()
+ * and the IFS timer call it again.
+ */
+static void _csma_attempt(ieee802154_dev_t *dev)
+{
+    if ((_tx_state != TX_STATE_IDLE) || _cfg.ifs) {
+        _csma_due = true;
+        return;
+    }
+    _csma_due = false;
+
+    int res = _tx_submit();
+
+    if (res > 0) {
+        _csma_busy(dev);
+    }
+    else if (res < 0) {
+        _csma_active = false;
+        _tx_result = (res == -EAGAIN) ? -EIO : res;
+        dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
+    }
+}
+
+static void _csma_timer_cb(void *arg)
+{
+    (void)arg;
+
+    if (_csma_active) {
+        _csma_attempt(cc26x2_cc13x2_rf_hal);
+    }
+}
+
+/* Gives up a transmission that is still in its backoff */
+static void _csma_cancel(void)
+{
+    ztimer_remove(ZTIMER_USEC, &_csma_timer);
+    _csma_active = false;
+    _csma_due = false;
 }
 
 /*
@@ -420,6 +597,14 @@ static void _tx_done(ieee802154_dev_t *dev)
     if (tx_state == TX_STATE_TX_ACK) {
         _ack_done(dev, true);
         return;
+    }
+
+    if (_csma_active) {
+        if (res == -EBUSY) {
+            _csma_busy(dev);
+            return;
+        }
+        _csma_active = false;
     }
 
     if (sent && _tx_wait_ack) {
@@ -613,7 +798,9 @@ static int _len(ieee802154_dev_t *dev)
 
     /* shouldn't be null as we informed about a packet */
     rfc_data_entry_general_t *entry = cc26x2_cc13x2_rf_recv();
-    assert(entry != NULL);
+    if (entry == NULL) {
+        return -ENOENT;
+    }
 
     uint16_t pktlen = _entry_len(entry);
     if (pktlen < CC26X2_CC13X2_RF_RX_STATUS_LEN ||
@@ -635,6 +822,7 @@ static int _off(ieee802154_dev_t *dev)
     _rx_stopping = false;
     _cca_pending = false;
     _tx_report = false;
+    _csma_cancel();
     _tx_state = TX_STATE_IDLE;
     _state = STATE_IDLE;
     cc26x2_cc13x2_rf_rx_release_all();
@@ -650,6 +838,24 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
 
     switch (op) {
     case IEEE802154_HAL_OP_TRANSMIT:
+        if (_csma_conf.retries > 0) {
+            /* CSMA-CA: the frame goes out after a backoff and a CCA. The
+             * ACK of a received frame and the IFS do not hold the request
+             * back, they are waited for when the backoff is over. */
+            unsigned key = irq_disable();
+
+            _tx_result = -EAGAIN;
+            _tx_cca = true;
+            _tx_wait_ack = _tx_ack_req;
+            _tx_frame_pending = false;
+            _state = STATE_TX;
+            _csma_nb = 0;
+            _csma_be = _csma_conf.min_be;
+            _csma_active = true;
+            _csma_backoff();
+            irq_restore(key);
+            break;
+        }
         if (_cfg.ifs) {
             DEBUG("[cc26x2_cc13x2_rf]: waiting IFS period\n");
             return -EBUSY;
@@ -661,32 +867,21 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
             DEBUG("[cc26x2_cc13x2_rf]: an ACK is pending\n");
             return -EBUSY;
         }
-        /* RX must have ended before the TX command is submitted, only one
-         * radio operation command runs at a time. With CCA a frame that is
-         * being received counts as a busy channel and is left alone. */
-        if (!_cfg.cca_send) {
-            _rx_abort();
-        }
-        else if (_rx_stop_unless_receiving() != 0) {
+
+        _tx_result = -EAGAIN;
+        _tx_cca = (_csma_conf.retries == 0);
+        _tx_wait_ack = _tx_ack_req;
+        _tx_frame_pending = false;
+
+        res = _tx_submit();
+        if (res > 0) {
+            /* a frame is being received: a busy channel */
             _tx_result = -EBUSY;
             _state = STATE_TX;
             dev->cb(dev, IEEE802154_RADIO_CONFIRM_TX_DONE);
             return 0;
         }
-
-        _tx_result = -EAGAIN;
-        _tx_cca = _cfg.cca_send;
-        _tx_wait_ack = _tx_ack_req;
-        _tx_frame_pending = false;
-        _tx_state = TX_STATE_TX;
-        RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
-        RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_LAST_COMMAND_DONE;
-
-        if ((res = cc26x2_cc13x2_rf_request_transmit(_tx_cca, _tx_wait_ack)) != 0) {
-            DEBUG("[cc26x2_cc13x2_rf]: failed to transmit\n");
-            RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
-            _tx_state = TX_STATE_IDLE;
-            _restore_rx();
+        if (res < 0) {
             return res;
         }
         _state = STATE_TX;
@@ -733,6 +928,7 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
 
         if (force) {
             _rx_enabled = false;
+            _csma_cancel();
             _rx_abort();
             _ack_cancel();
         }
@@ -755,7 +951,7 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         break;
     }
     case IEEE802154_HAL_OP_CCA:
-        if (_tx_state == TX_STATE_TX) {
+        if ((_tx_state == TX_STATE_TX) || _csma_active) {
             return -EBUSY;
         }
         /* the carrier sense is a radio operation command too, RX must have
@@ -960,17 +1156,18 @@ static int _set_csma_params(ieee802154_dev_t *dev,
                             int8_t retries)
 {
     (void)dev;
-    (void)bd;
 
-    /* The radio has no CSMA-CA with backoffs and retries of its own, the
-     * SubMAC does that. It does the CCA of every attempt: with 0 retries a
-     * transmission starts with a CCA and only goes on if the channel is
-     * clear, with a negative number it is sent right away. */
-    if (retries > 0) {
-        return -EINVAL;
+    if (bd != NULL) {
+        if ((bd->min > bd->max) || (bd->max > CSMA_BE_MAX)) {
+            return -EINVAL;
+        }
+        _csma_conf.min_be = bd->min;
+        _csma_conf.max_be = bd->max;
     }
-
-    _cfg.cca_send = (retries == 0);
+    /* Negative: a frame is sent right away. 0: it starts with a CCA and only
+     * goes on if the channel is clear. Positive: CSMA-CA with that many
+     * retries, see _csma_backoff(). */
+    _csma_conf.retries = retries;
 
     return 0;
 }
@@ -1046,6 +1243,7 @@ void cc26x2_cc13x2_rf_hal_setup(ieee802154_dev_t *hal)
 static const ieee802154_radio_ops_t cc26x2_cc13x2_rf_ops = {
     .caps = IEEE802154_CAP_SUB_GHZ
           | IEEE802154_CAP_AUTO_ACK
+          | IEEE802154_CAP_AUTO_CSMA
           | IEEE802154_CAP_IRQ_ACK_TIMEOUT
           | IEEE802154_CAP_IRQ_TX_DONE
           | IEEE802154_CAP_IRQ_CCA_DONE
@@ -1100,7 +1298,13 @@ static void _timer_cb(void *arg, int chan)
     }
     else if (chan == MAC_TIMER_CHAN_IFS) {
         _cfg.ifs = false;
-        _restore_rx();
+        if (_csma_due) {
+            /* a backoff of CSMA-CA ended during the IFS */
+            _csma_attempt(cc26x2_cc13x2_rf_hal);
+        }
+        else {
+            _restore_rx();
+        }
     }
 
     /* timer_stop() stops both channels: not while the other one is armed */

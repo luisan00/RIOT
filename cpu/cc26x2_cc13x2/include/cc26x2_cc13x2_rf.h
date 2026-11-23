@@ -78,6 +78,11 @@
  *   when the upper layer sets the radio to RX again
  * - CCA by energy detection, on request and before a transmission: the RF
  *   Core only transmits if the channel was clear for the CCA duration
+ * - CSMA-CA before a transmission, with the backoff exponents and the number
+ *   of retries set with `set_csma_params` of the radio HAL (0 retries: a
+ *   single CCA, a negative number: none). The radio listens during the
+ *   backoff, and a frame that comes in then is acknowledged and kept like
+ *   one that comes instead of an ACK
  * - A frame that is being received is not interrupted by a CCA, by a
  *   transmission with CCA or by a request to go idle that is not forced:
  *   they report a busy channel or radio. The same holds after the frame
@@ -93,8 +98,7 @@
  *
  * Not implemented:
  *
- * - The backoffs and retries of CSMA-CA and the retransmissions, which the
- *   SubMAC does
+ * - The retransmissions, which the SubMAC does
  * - 4-FSK, FEC and mode switch
  *
  * ## The 2.4 GHz band

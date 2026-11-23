@@ -26,12 +26,14 @@ ifneq (,$(filter cc26x2_cc13x2_rf,$(USEMODULE)))
       # module pulls netdev in.
       USEMODULE += netdev_ieee802154_mr_fsk
     endif
+    # the backoffs of CSMA-CA: their random length and their timer
+    USEMODULE += random
+    USEMODULE += ztimer_usec
     ifneq (,$(filter ieee802154_submac,$(USEMODULE)))
-      # The sub-GHz radio sends ACKs itself and waits for the ACK of a frame
-      # it sent, but it has no CSMA-CA and does not retransmit: the SubMAC
-      # has to do both. Without these modules it assumes the radio does. In
-      # the 2.4 GHz band the RF Core does all of it.
-      USEMODULE += ieee802154_submac_soft_csma_ca
+      # The sub-GHz radio sends ACKs itself, waits for the ACK of a frame it
+      # sent and does CSMA-CA, but it does not retransmit: the SubMAC has to.
+      # Without this module it assumes the radio does. In the 2.4 GHz band
+      # the RF Core does all of it.
       USEMODULE += ieee802154_submac_soft_frame_retrans
     endif
   endif
