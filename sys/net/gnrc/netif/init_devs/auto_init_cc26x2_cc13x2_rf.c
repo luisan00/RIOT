@@ -12,6 +12,7 @@
  * @brief   Auto initialization for the cc26x2/cc13x2 Sub-GHz network interface
  *
  * @author  Jean Pierre Dudey <jeandudey@hotmail.com>
+ * @author  Francisco Acosta <fco.ja.ac@gmail.com>
  * @author  Luis A. Ruiz <luisan00@hotmail.com>
  */
 

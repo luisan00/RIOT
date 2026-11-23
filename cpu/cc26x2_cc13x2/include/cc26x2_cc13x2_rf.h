@@ -117,6 +117,7 @@
  * @brief           Interface of the CC13x2 sub-GHz IEEE 802.15.4g radio driver
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
+ * @author          Francisco Acosta <fco.ja.ac@gmail.com>
  * @author          Luis A. Ruiz <luisan00@hotmail.com>
  */
 
