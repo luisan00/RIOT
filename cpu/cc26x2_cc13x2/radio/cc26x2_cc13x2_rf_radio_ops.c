@@ -114,6 +114,8 @@ static volatile bool _cca_pending;
 enum {
     TX_STATE_IDLE,         /**< We are not transmitting anything */
     TX_STATE_TX,           /**< Normal TX */
+    TX_STATE_ACK_WAIT,     /**< A frame was received and its ACK is due: the
+                                timer of the AIFS is running */
     TX_STATE_TX_ACK,       /**< Transmitting ACK */
 };
 
@@ -200,7 +202,9 @@ static void _handle_rx(ieee802154_dev_t *dev)
             /* To send the ACK we need to stop receiving. */
             _rx_abort();
 
-            /* The ACK goes out AIFS after the frame. */
+            /* The ACK goes out AIFS after the frame. Until then every
+             * request that needs the radio is refused, see _ack_pending(). */
+            _tx_state = TX_STATE_ACK_WAIT;
             timer_set(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK,
                       cc26x2_cc13x2_rf_ack_delay_us());
             timer_start(CC26X2_CC13X2_RF_TIMER);
@@ -224,18 +228,39 @@ static void _set_ifs_timer(void)
     timer_start(CC26X2_CC13X2_RF_TIMER);
 }
 
-/* Restart RX if the upper layer asked for it and it is not running */
-static void _restore_rx(void)
+/* Whether CMD_PROP_TX_ADV was submitted and its end is awaited */
+static bool _tx_running(void)
 {
-    if (_rx_enabled && (cc26x2_cc13x2_rf_rx_start() == 0)) {
-        _state = STATE_RX;
-    }
+    return (_tx_state == TX_STATE_TX) || (_tx_state == TX_STATE_TX_ACK);
+}
+
+/*
+ * Whether a received frame still has to be acknowledged. The ACK belongs to
+ * the reception of the frame: from the end of the frame until the ACK is on
+ * the air the radio is as busy as while the frame was coming in, although
+ * RX is off, and nothing else may be started. The frame is indicated after
+ * its ACK.
+ */
+static bool _ack_pending(void)
+{
+    return (_tx_state == TX_STATE_ACK_WAIT) || (_tx_state == TX_STATE_TX_ACK);
 }
 
 /* Whether the end of a transmission or of a CCA is awaited */
 static bool _op_pending(void)
 {
-    return (_tx_state != TX_STATE_IDLE) || _cca_pending;
+    return _tx_running() || _cca_pending;
+}
+
+/* Restart RX if the upper layer asked for it and it is not running. Only one
+ * radio operation command runs at a time: not while a transmission, an ACK
+ * or a CCA is under way, RX is restored when they end. */
+static void _restore_rx(void)
+{
+    if (_rx_enabled && (_tx_state == TX_STATE_IDLE) && !_cca_pending &&
+        (cc26x2_cc13x2_rf_rx_start() == 0)) {
+        _state = STATE_RX;
+    }
 }
 
 /* Stops RX at once. A frame that is being received is lost. */
@@ -252,6 +277,28 @@ static void _rx_abort(void)
     }
 
     irq_restore(key);
+}
+
+/*
+ * Gives up the ACK of a received frame that is still waiting for its AIFS,
+ * for a forced transition to idle. The frame is dropped: its sender gets no
+ * ACK and sends it again. An ACK that is already on the air goes on, and its
+ * frame is indicated when it ends.
+ */
+static void _ack_cancel(void)
+{
+    if (_tx_state == TX_STATE_ACK_WAIT) {
+        rfc_data_entry_general_t *entry = cc26x2_cc13x2_rf_recv();
+
+        timer_clear(CC26X2_CC13X2_RF_TIMER, MAC_TIMER_CHAN_ACK);
+        if (!_cfg.ifs) {
+            timer_stop(CC26X2_CC13X2_RF_TIMER);
+        }
+        _tx_state = TX_STATE_IDLE;
+        if (entry != NULL) {
+            entry->status = RFC_DATA_ENTRY_PENDING;
+        }
+    }
 }
 
 /*
@@ -371,7 +418,7 @@ void cc26x2_cc13x2_rfc_isr(void)
          * command ends after the read, the flag is raised again. */
         RFC_DBELL_NONBUF->RFCPEIFG = ~CPE_IRQ_LAST_COMMAND_DONE;
 
-        if ((_tx_state != TX_STATE_IDLE) &&
+        if (_tx_running() &&
             (cc26x2_cc13x2_rf_tx_chain_state(_tx_cca) != -EAGAIN)) {
             RFC_DBELL_NONBUF->RFCPEIEN &= ~CPE_IRQ_LAST_COMMAND_DONE;
             _tx_done(dev);
@@ -499,6 +546,13 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
             DEBUG("[cc26x2_cc13x2_rf]: waiting IFS period\n");
             return -EBUSY;
         }
+        /* Not reached through the SubMAC, which goes to idle before and is
+         * refused there. A transmission started now would be hit by the ACK,
+         * or hit it. */
+        if (_ack_pending()) {
+            DEBUG("[cc26x2_cc13x2_rf]: an ACK is pending\n");
+            return -EBUSY;
+        }
         /* RX must have ended before the TX command is submitted, only one
          * radio operation command runs at a time. With CCA a frame that is
          * being received counts as a busy channel and is left alone. */
@@ -531,8 +585,19 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         if (_state != STATE_IDLE && _state != STATE_RX) {
             return -EBUSY;
         }
+        {
+            unsigned key = irq_disable();
+
+            _rx_enabled = true;
+            if (_ack_pending()) {
+                /* RX is started again when the ACK has been sent */
+                _state = STATE_RX;
+                irq_restore(key);
+                break;
+            }
+            irq_restore(key);
+        }
         _tx_state = TX_STATE_IDLE;
-        _rx_enabled = true;
         if ((res = cc26x2_cc13x2_rf_rx_start()) != 0) {
             _rx_enabled = false;
             _state = STATE_IDLE;
@@ -552,6 +617,13 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         if (force) {
             _rx_enabled = false;
             _rx_abort();
+            _ack_cancel();
+        }
+        else if (_ack_pending()) {
+            /* a frame was received and its ACK is not out yet: as busy as
+             * while the frame was coming in */
+            irq_restore(key);
+            return -EBUSY;
         }
         else if (_rx_stop_unless_receiving() != 0) {
             /* a frame is being received: RX stays on */
@@ -566,10 +638,13 @@ static int _request_op(ieee802154_dev_t *dev, ieee802154_hal_op_t op, void *ctx)
         break;
     }
     case IEEE802154_HAL_OP_CCA:
+        if (_tx_state == TX_STATE_TX) {
+            return -EBUSY;
+        }
         /* the carrier sense is a radio operation command too, RX must have
          * ended before. During the reception of a frame the channel is
-         * busy without looking. */
-        if (_rx_stop_unless_receiving() != 0) {
+         * busy without looking, and so it is until its ACK has been sent. */
+        if (_ack_pending() || (_rx_stop_unless_receiving() != 0)) {
             _cca_result = CCA_RESULT_BUSY;
             dev->cb(dev, IEEE802154_RADIO_CONFIRM_CCA);
             return 0;
@@ -876,7 +951,7 @@ static void _timer_cb(void *arg, int chan)
 {
     (void)arg;
 
-    if (chan == MAC_TIMER_CHAN_ACK) {
+    if ((chan == MAC_TIMER_CHAN_ACK) && (_tx_state == TX_STATE_ACK_WAIT)) {
         iolist_t iolist = {
             .iol_next = NULL,
             .iol_base = _ack,
@@ -908,7 +983,10 @@ static void _timer_cb(void *arg, int chan)
         _restore_rx();
     }
 
-    timer_stop(CC26X2_CC13X2_RF_TIMER);
+    /* timer_stop() stops both channels: not while the other one is armed */
+    if (!_cfg.ifs && (_tx_state != TX_STATE_ACK_WAIT)) {
+        timer_stop(CC26X2_CC13X2_RF_TIMER);
+    }
 }
 
 void cc26x2_cc13x2_rf_init(void)
