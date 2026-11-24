@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2020 Locha Inc
+ * SPDX-FileCopyrightText: 2026 luisan00
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
@@ -12,6 +13,7 @@
  * @brief       Power management abstractions
  *
  * @author      Jean Pierre Dudey <jeandudey@hotmail.com>
+ * @author      Luis A. Ruiz <luisan00@hotmail.com>
  *
  * @}
  */
@@ -74,7 +76,13 @@ void power_enable_domain(const power_domain_t domain)
         case POWER_DOMAIN_RFC:
             /* On CC26x0 MCUs PDCTL1RFC needs to be written too in order to
              * enable the RF Core power domain. On `cc13x2_cc26x2` it's not
-             * necessary and domain is powered normally. */
+             * necessary and domain is powered normally.
+             *
+             * On `cc13x2_cc26x2`, TI's PRCMPowerDomainOn() (driverlib prcm.c)
+             * only writes PDCTL0RFC. PDCTL1RFC is an alias of PDCTL1.RFC_ON,
+             * meant for the RF Core in autonomous mode, and the domain is
+             * only powered off when both bits are 0 (SWCU185G, Tables 7-82
+             * and 7-84). Code that powers the domain off must clear both. */
             PRCM->PDCTL0RFC = DOMAIN_ON;
             PRCM->PDCTL1RFC = DOMAIN_ON;
             break;
@@ -89,6 +97,32 @@ void power_enable_domain(const power_domain_t domain)
     }
 
     while (!power_is_domain_enabled(domain)) {}
+}
+
+void power_disable_domain(const power_domain_t domain)
+{
+    switch (domain) {
+        case POWER_DOMAIN_PERIPHERALS:
+            PRCM->PDCTL0PERIPH = 0;
+            break;
+
+        case POWER_DOMAIN_SERIAL:
+            PRCM->PDCTL0SERIAL = 0;
+            break;
+
+        case POWER_DOMAIN_RFC:
+            /* The RF Core domain is only powered off when both bits are 0
+             * (SWCU185G, Table 7-82) */
+            PRCM->PDCTL0RFC = 0;
+            PRCM->PDCTL1RFC = 0;
+            break;
+
+        default:
+            /* the CPU and VIMS domains are not switched off from here */
+            return;
+    }
+
+    while (power_is_domain_enabled(domain)) {}
 }
 
 void power_clock_enable_gpio(void)
@@ -148,6 +182,16 @@ void power_clock_disable_uart(uart_t uart)
         PRCM->UARTCLKGS &= ~UARTCLKGS_CLK_EN_UART1;
     }
 #endif
+
+    prcm_commit();
+}
+
+/* PRCM:RFCCLKG.CLK_EN gates every clock of the RF Core, and only has effect
+ * while the RF Core power domain is on. It resets to 1, and as the other
+ * clock gates it is applied by CLKLOADCTL.LOAD (SWCU185G, Table 7-34). */
+void power_clock_enable_rfc(void)
+{
+    PRCM->RFCCLKG = RFCCLKG_CLK_EN;
 
     prcm_commit();
 }
