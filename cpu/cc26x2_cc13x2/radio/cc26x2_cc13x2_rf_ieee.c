@@ -86,7 +86,8 @@
 /** macSifsPeriod and macLifsPeriod, 12 and 40 symbols */
 #define SIFS_US                 (192U)
 #define LIFS_US                 (640U)
-/** macAckWaitDuration, 54 symbols for this PHY */
+/** Time to wait for an ACK: 54 symbols for this PHY, the macAckWaitDuration
+ *  of IEEE Std 802.15.4-2006. The 2024 edition gives no figure. */
 #define ACK_WAIT_US             (864U)
 /** @} */
 
@@ -230,8 +231,8 @@ static rfc_cmd_ieee_tx_t _cmd_tx = {
 /*
  * Reception of the ACK, [TRM] 25.5.4.5. It ends with IEEE_DONE_ACK or
  * IEEE_DONE_ACKPEND when the ACK with the sequence number of the frame
- * arrives, or with IEEE_DONE_TIMEOUT macAckWaitDuration after its start, the
- * end of the transmission.
+ * arrives, or with IEEE_DONE_TIMEOUT #ACK_WAIT_US after its start, the end
+ * of the transmission.
  */
 static rfc_cmd_ieee_rx_ack_t _cmd_rx_ack = {
     .command_no = RFC_CMD_IEEE_RX_ACK,

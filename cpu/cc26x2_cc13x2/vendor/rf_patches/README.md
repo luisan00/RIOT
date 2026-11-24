@@ -18,10 +18,10 @@ https://github.com/TexasInstruments/simplelink-lowpower-f2-sdk), directory
 
 They are patches of the command and packet engine (CPE):
 
-- `rf_patch_cpe_prop` for the proprietary mode, the one TI's radio settings
-  name for every PHY the sub-GHz driver uses.
-- `rf_patch_cpe_ieee_802_15_4` for the IEEE 802.15.4 mode, the one of TI's
-  setting for the O-QPSK PHY in the 2.4 GHz band.
+- `rf_patch_cpe_prop` for the proprietary mode. It is the patch that TI's
+  radio settings name for every PHY the sub-GHz driver uses.
+- `rf_patch_cpe_ieee_802_15_4` for the IEEE 802.15.4 mode. It is the patch of
+  TI's setting for the O-QPSK PHY in the 2.4 GHz band.
 
 Only the patch of the driver variant in use ends up in the firmware. The
 license of the files, BSD 3-Clause, is in the header of each one.

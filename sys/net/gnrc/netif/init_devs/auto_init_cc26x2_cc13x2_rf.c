@@ -9,7 +9,7 @@
  * @{
  *
  * @file
- * @brief   Auto initialization for the cc26x2/cc13x2 Sub-GHz network interface
+ * @brief   Auto initialization of the network interface of the CC13x2 radio
  *
  * @author  Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author  Francisco Acosta <fco.ja.ac@gmail.com>

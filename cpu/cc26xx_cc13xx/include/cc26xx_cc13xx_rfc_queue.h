@@ -30,7 +30,7 @@ extern "C" {
  */
 typedef struct {
     void *curr_entry; /**< Pointer to the data entry to be used */
-    void *last_entry; /**< Last entry of the queue, NULL is queue is
+    void *last_entry; /**< Last entry of the queue, NULL if the queue is
                            circular */
 } rfc_data_queue_t;
 

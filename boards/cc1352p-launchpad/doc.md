@@ -46,7 +46,8 @@ The plan of the standard, the other bands, the channel spacing and the
 operating modes are described in the documentation of the driver.
 
 The driver uses the sub-GHz path of the on-board RF switch with the standard
-PA (up to 14 dBm).
+PA, which gives up to 13 dBm, or 14 dBm in a build with
+`CONFIG_CC26XX_CC13XX_FORCE_VDDR_HH`.
 
 With `USEMODULE += cc26x2_cc13x2_rf_24ghz` the driver is built for the 2.4 GHz
 band instead, with the O-QPSK PHY of IEEE 802.15.4 on channels 11 to 26. It
@@ -60,13 +61,16 @@ or `cc1352p-2`:
     BOARD=cc1352p-launchpad BOARD_VERSION=cc1352p-2 make ...
 
 On the LAUNCHXL-CC1352P1 the 20 dBm PA is for the 868/915 MHz band. The
-driver uses it for TX powers above 14 dBm when it is built with
-`CFLAGS=-DCONFIG_CC26X2_CC13X2_RF_PA20=1`; the RF Core then moves the RF
+driver uses it for TX powers above those of the standard PA when it is built
+with `CFLAGS=-DCONFIG_CC26X2_CC13X2_RF_PA20=1`; the RF Core then moves the RF
 switch itself between that PA in TX and the sub-GHz path in RX. This is off
 by default, as only some channels of some bands allow such powers.
 
-The 48 MHz crystal of the LAUNCHXL-CC1352P1 needs a cap-array trim that is
-stored in the CCFG. RIOT only writes the CCFG when it is built with
+The radio has been tested on the LAUNCHXL-CC1352P1. Nobody has tried it on
+the LAUNCHXL-CC1352P-2 yet.
+
+The 48 MHz crystal of this LaunchPad needs a cap-array trim that is stored in
+the CCFG. RIOT only writes the CCFG when it is built with
 `CFLAGS=-DCONFIG_CC26XX_CC13XX_UPDATE_CCFG=1`, so flash such a build once.
 Without the trim the carrier frequency is off, and the board may not be heard
 by radios that are on frequency.

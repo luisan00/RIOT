@@ -104,7 +104,7 @@
  * (DITHER_EN=0 and IPEAK=7). */
 #define OVERRIDE_DCDCCTL5_REG           ((uint32_t)0x00F788D3)
 /* override_prop_common_sub1g: Set RF_FSCA.ANADIV.DIV_SEL_BIAS = 1. Bits
- * [0:16, 24, 30] are don't care.. */
+ * [0:16, 24, 30] are don't care. */
 #define OVERRIDE_RF_FSCA_0              ((uint32_t)0x4001405D)
 /* override_prop_common_sub1g: same as above, second word */
 #define OVERRIDE_RF_FSCA_1              ((uint32_t)0x08141131)
@@ -522,10 +522,10 @@ static const fsk_mode_t *_mode = &_modes[MODE_DEFAULT];
 /**
  * CMD_SYNC_START_RAT
  *
- * This commands starts the Radio Timer, needed to run time-dependant radio
- * operations, and to chain commands. We only use the parameter `rat0` which
- * is the previous RAT offset when it was stopped using CMD_SYNC_STOP_RAT,
- * if no previous offset is present, 0 is fine.
+ * Starts the radio timer (RAT), which the RF Core needs for everything that
+ * is timed and to chain commands. The only parameter the driver sets is
+ * `rat0`, the offset the RAT had when CMD_SYNC_STOP_RAT stopped it; 0 is
+ * fine when there is none yet.
  *
  * [TRM] 25.3.3.1.10 and 25.2.4:
  *
@@ -545,7 +545,7 @@ rfc_cmd_sync_start_rat_t rf_cmd_sync_start_rat =
 {
     .command_no = RFC_CMD_SYNC_START_RAT,
     .status = RFC_IDLE,
-    .next_op = NULL, /* set by us */
+    .next_op = NULL, /* set when the commands are chained */
     .start_time = 0,
     .start_trigger = {
         .type = RFC_TRIG_NOW,
@@ -558,16 +558,15 @@ rfc_cmd_sync_start_rat_t rf_cmd_sync_start_rat =
         .skip_no = 0,
     },
     .__dummy0 = 0,
-    .rat0 = 0, /* set by us */
+    .rat0 = 0, /* set at power-up */
 };
 
 /**
  * CMD_PROP_RADIO_DIV_SETUP
  *
- * This is the "setup" command for the radio, sets the necessary parameters for
- * TX/RX and some configuration of the modulation, whitening, packet format,
- * symbol rate, preamble configuration, receiver bandwidth, intermediate
- * frequency, center frequency.
+ * The setup command of the radio. It configures what TX and RX have in
+ * common: modulation, symbol rate, receiver bandwidth, preamble, sync word,
+ * whitening and CRC, intermediate frequency and frequency band.
  *
  * The fields are described in [TRM] Table 25-175 and section 25.10.5.2:
  *
@@ -599,7 +598,7 @@ rfc_cmd_prop_radio_div_setup_t rf_cmd_prop_radio_div_setup =
 {
     .command_no = RFC_CMD_PROP_RADIO_DIV_SETUP,
     .status = RFC_IDLE,
-    .next_op = NULL, /* set by us */
+    .next_op = NULL, /* set when the commands are chained */
     .start_time = 0,
     .start_trigger = {
         .type = RFC_TRIG_NOW,
@@ -649,7 +648,7 @@ rfc_cmd_prop_radio_div_setup_t rf_cmd_prop_radio_div_setup =
 /**
  * CMD_FS
  *
- * The Frequency Sinthesizer command, sets the channel frequency.
+ * The frequency synthesizer command: it tunes the radio to a channel.
  *
  * [TRM] 25.3.3.1.5: the synthesizer is tuned to
  * (`frequency` + `fract_freq` / 65536) MHz. `txmode = 0` starts it in RX mode;
@@ -664,7 +663,7 @@ rfc_cmd_fs_t rf_cmd_fs =
 {
     .command_no = RFC_CMD_FS,
     .status = RFC_IDLE,
-    .next_op = NULL, /* set by us */
+    .next_op = NULL, /* set when the commands are chained */
     .start_time = 0,
     .start_trigger = {
         .type = RFC_TRIG_NOW,
@@ -676,8 +675,8 @@ rfc_cmd_fs_t rf_cmd_fs =
         .rule = RFC_COND_NEVER,
         .skip_no = 0
     },
-    .frequency = 0, /* set by us */
-    .fract_freq = 0, /* set by us */
+    .frequency = 0, /* set with the channel */
+    .fract_freq = 0, /* set with the channel */
     .synth_conf = {
         .txmode = 0,
         .ref_freq = 0
@@ -691,8 +690,9 @@ rfc_cmd_fs_t rf_cmd_fs =
 /**
  * CMD_PROP_TX_ADV
  *
- * Advanced proprietary transmission. Despite the "proprietary" name, it's
- * compatible with IEEE 802.15.4g. Fields set at runtime are: pkt and pkt_len.
+ * The advanced transmit command of the proprietary mode. Despite the name of
+ * the mode, it sends IEEE 802.15.4g frames. The driver fills in `pkt` and
+ * `pkt_len` for each frame.
  *
  * The fields are described in [TRM] Table 25-171 and section 25.10.5.3.2:
  *
@@ -715,7 +715,7 @@ rfc_cmd_prop_tx_adv_t rf_cmd_prop_tx_adv =
 {
     .command_no = RFC_CMD_PROP_TX_ADV,
     .status = RFC_IDLE,
-    .next_op = NULL, /* set by us */
+    .next_op = NULL, /* set when the commands are chained */
     .start_time = 0,
     .start_trigger = {
         .type = RFC_TRIG_NOW,
@@ -734,7 +734,7 @@ rfc_cmd_prop_tx_adv_t rf_cmd_prop_tx_adv =
         .crc_inc_hdr = 0
     },
     .num_hdr_bits = IEEE802154_PHY_MR_FSK_PHR_LEN * 8,
-    .pkt_len = 0, /*< set by us */
+    .pkt_len = 0, /* set for each frame */
     .start_conf = {
         .ext_tx_trig = 0,
         .input_mode = 0,
@@ -748,14 +748,15 @@ rfc_cmd_prop_tx_adv_t rf_cmd_prop_tx_adv =
     },
     .pre_time = 0,
     .sync_word = SYNC_WORD,
-    .pkt = 0 /* set by us */
+    .pkt = 0 /* set for each frame */
 };
 
 /**
  * CMD_PROP_RX_ADV
  *
- * Advanced proprietary RX. Sets the radio into RX mode, it keeps putting
- * the RX queue. This command does not finish unless it's aborted/stopped.
+ * The advanced receive command of the proprietary mode. It keeps the radio
+ * receiving and puts every frame into the RX queue, until it is stopped or
+ * aborted.
  *
  * The fields are described in [TRM] Table 25-173 and section 25.10.5.4:
  *
@@ -782,7 +783,7 @@ rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_adv =
 {
     .command_no = RFC_CMD_PROP_RX_ADV,
     .status = RFC_IDLE,
-    .next_op = NULL, /* set by us */
+    .next_op = NULL, /* set when the commands are chained */
     .start_time = 0,
     .start_trigger = {
         .type = RFC_TRIG_NOW,
@@ -836,8 +837,8 @@ rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_adv =
     },
     .end_time = 0,
     .addr = 0, /* unused */
-    .queue = 0, /* set by us */
-    .output = 0 /* set by us */
+    .queue = 0, /* set at initialization */
+    .output = 0 /* set at initialization */
 };
 
 /**
@@ -916,8 +917,8 @@ rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_ack =
     },
     .end_time = 0, /* set by _load_mode() */
     .addr = 0, /* unused */
-    .queue = 0, /* set by us */
-    .output = 0 /* set by us */
+    .queue = 0, /* set at initialization */
+    .output = 0 /* set at initialization */
 };
 
 /**
@@ -932,9 +933,9 @@ rfc_cmd_prop_rx_adv_t rf_cmd_prop_rx_ack =
  *   `num_rssi_busy` consecutive measurements above it and INVALID otherwise.
  * - `busy_op = 1` ends the command with PROP_DONE_BUSY on the first BUSY
  *   state. `idle_op = 0` keeps it running while the channel is IDLE, until
- *   the end trigger: #CC26X2_CC13X2_RF_CCA_DURATION_US after the first RSSI measurement of
- *   the mode, set by _load_mode(). It then ends with PROP_DONE_IDLE ([TRM]
- *   Table 25-188).
+ *   the end trigger: #CC26X2_CC13X2_RF_CCA_DURATION_US after the first RSSI
+ *   measurement of the mode, set by _load_mode(). It then ends with
+ *   PROP_DONE_IDLE ([TRM] Table 25-188).
  * - `timeout_res = 0`: if there was no measurement at all before the end
  *   trigger, the command ends with PROP_DONE_BUSYTIMEOUT and the channel
  *   counts as busy.
@@ -967,8 +968,8 @@ rfc_cmd_prop_cs_t rf_cmd_prop_cs =
         .skip_no = 0
     },
     .fs_conf = {
-        /* we don't want to turn off the Frequency Synthesizer after a
-         * carrier sense command */
+        /* the synthesizer stays on after the carrier sense, for the
+         * command that follows */
         .off_idle = 0,
         .off_busy = 0,
     },
@@ -982,7 +983,7 @@ rfc_cmd_prop_cs_t rf_cmd_prop_cs =
         .idle_op = 0,
         .timeout_res = 0,
     },
-    .rssi_thr = -80, /* SHOULD be set by us, through hal or netdev */
+    .rssi_thr = -80, /* a starting value, the radio HAL sets its own */
     .num_rssi_idle = 1, /* consecutive RSSI measurements to mark channel as
                            Idle */
     .num_rssi_busy = 1, /* consecutive RSSI measurements to mark channel as

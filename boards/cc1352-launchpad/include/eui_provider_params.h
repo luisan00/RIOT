@@ -36,7 +36,7 @@ static inline int _cc26x2_cc13x2_get_eui64(uint8_t index, eui64_t *addr)
 
 /**
  * @name    EUI sources on the board
- *          IEEE address of the MCU for the sub-GHz radio
+ *          IEEE address of the MCU, for its radio
  * @{
  */
 #define EUI64_PROVIDER_FUNC   _cc26x2_cc13x2_get_eui64

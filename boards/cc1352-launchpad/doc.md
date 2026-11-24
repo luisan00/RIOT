@@ -44,6 +44,10 @@ With `USEMODULE += cc26x2_cc13x2_rf_24ghz` the driver is built for the 2.4 GHz
 band instead, with the O-QPSK PHY of IEEE 802.15.4 on channels 11 to 26 and up
 to 5 dBm. The radio works in one of the two bands, chosen at build time.
 
+The driver was developed on the LAUNCHXL-CC1312R1 and the LAUNCHXL-CC1352P1,
+which have the same radio. It builds for this board, but nobody has tried it
+here yet.
+
 ## Board pinout
 
 The [LAUNCHXL-CC1352R1 Quick Start Guide](https://www.ti.com/lit/ml/swru525e/swru525e.pdf)

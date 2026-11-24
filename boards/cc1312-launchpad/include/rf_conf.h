@@ -11,7 +11,7 @@
  * @{
  *
  * @file
- * @brief           RF configuration
+ * @brief           Radio configuration of the board: PA tables
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author          Luis A. Ruiz <luisan00@hotmail.com>
@@ -25,7 +25,13 @@ extern "C" {
 #endif
 
 /**
- * @name   CC26x2/CC13x2 PA table configuration
+ * @name   PA table for the sub-GHz band
+ *
+ * The standard PA gives up to 13 dBm in this band, and 14 dBm with the higher
+ * VDDR voltage. The values are TI's for the RF design `CC1312REM-XD7793`,
+ * 770 to 930 MHz (SimpleLink SDK 8.33.00.16,
+ * `radioconfig/.meta/config/pa_tables/cc13x2_cc26x2_r3/pasettings.json`),
+ * which also has -3 and -7 dBm.
  * @{
  */
 /**
@@ -33,12 +39,12 @@ extern "C" {
  */
 static cc26x2_cc13x2_rf_pa_t cc26x2_cc13x2_rf_patable[] =
 {
-    /* VDDR high allows 14 dBm transmit power, VDDR high setting is only
-     * enabled if the CCFG is flashed */
+    /* 14 dBm needs the higher VDDR voltage, which the MCU only uses when
+     * the CCFG is flashed with that option */
 #if IS_USED(CONFIG_CC26XX_CC13XX_FORCE_VDDR_HH)
     { .dbm = 14, .val = CC26X2_CC13X2_RF_PA_ENTRY(63, 0, 1, 0) },
 #endif
-    /* 12.5 rounded to 13 */
+    /* 12.5 dBm in TI's table */
     { .dbm = 13, .val = CC26X2_CC13X2_RF_PA_ENTRY(36, 0, 0, 89) },
     { .dbm = 12, .val = CC26X2_CC13X2_RF_PA_ENTRY(16, 0, 0, 82) },
     { .dbm = 11, .val = CC26X2_CC13X2_RF_PA_ENTRY(26, 2, 0, 51) },

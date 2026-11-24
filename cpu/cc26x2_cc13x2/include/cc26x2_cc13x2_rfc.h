@@ -11,7 +11,8 @@
  * @{
  *
  * @file
- * @brief           CC26x2/CC13x2 RF Core common functions
+ * @brief           CC26x2/CC13x2 RF Core: power, commands and data queue,
+ *                  shared by the two radio drivers
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author          Luis A. Ruiz <luisan00@hotmail.com>
@@ -30,38 +31,38 @@ extern "C" {
 #endif
 
 /**
- * @brief   Request the RF Core to power on.
+ * @brief   Start to power the RF Core up
  *
- *  - Powers on the radio core power domain.
- *  - Enables the RF Core clock gate.
- *  - Boot RF Core.
+ * Switches the power domain of the RF Core on, enables its clocks and lets
+ * it boot. The boot takes a moment: @ref cc26x2_cc13x2_rfc_confirm_on tells
+ * when it is over.
  */
 void cc26x2_cc13x2_rfc_request_on(void);
 
 /**
- * @brief   Confirm that the RF Core is on.
+ * @brief   Check whether the RF Core has booted
  *
- * @pre cc26x2_cc13x2_rfc_request_on MUST have been called before.
+ * @pre     @ref cc26x2_cc13x2_rfc_request_on was called.
  *
- * @return -EAGAIN if the RF Core has not been started yet.
- * @return 0 if started.
+ * @return  0 if the RF Core has booted
+ * @return  -EAGAIN if it is still booting
  */
 int cc26x2_cc13x2_rfc_confirm_on(void);
 
 /**
- * @brief   Finalize the power on of the RF Core.
+ * @brief   Finish the power-up of the RF Core, once it has booted
  *
- * @pre cc26x2_cc13x2_rfc_confirm_on MUST have been previously
- *      reported that the RF Core is on.
+ * - Switches the system to the HF crystal oscillator, which the radio needs.
+ * - Patches the firmware of the RF Core (CPE) with @p cpe_patch_fn.
+ * - Enables the RTC update signal that the commands to start and stop the
+ *   radio timer synchronize to.
  *
- * - Switches the HF clock source to the XOSC crystal.
- * - Patches the CPE if @p cpe_patch_fn is provided.
- * - Turns on the clock line to the radio core, necessary
- *   for @ref RFC_CMD_SYNC_START_RAT commands.
+ * After this the RF Core takes the setup commands of the radio.
  *
- * @param[in]   cpe_patch_fn    Function used to patch the CPE, can
- *                              be NULL if it doesn't needs to be
- *                              patched.
+ * @pre     @ref cc26x2_cc13x2_rfc_confirm_on has returned 0.
+ *
+ * @param[in]   cpe_patch_fn    function that applies the CPE patch, or NULL
+ *                              if there is none to apply
  */
 void cc26x2_cc13x2_rfc_finish_on(void (* cpe_patch_fn)(void));
 
@@ -78,26 +79,30 @@ void cc26x2_cc13x2_rfc_finish_on(void (* cpe_patch_fn)(void));
 void cc26x2_cc13x2_rfc_power_off(void);
 
 /**
- * @brief   Request the RF Core to execute a command.
+ * @brief   Send a command to the RF Core and wait until it has taken it
  *
- * @param[in]   cmd   The command to send.
+ * For a radio operation command this is not the end of the command, only
+ * its start: see @ref cc26x2_cc13x2_rfc_confirm_execute.
  *
- * @return CMDSTA register value.
+ * @param[in]   cmd     pointer to the command structure, or a direct command
+ *                      built with RFC_CMDR_DIR_CMD()
+ *
+ * @return  the value of the CMDSTA register: its low byte is
+ *          #RFC_CMDSTA_DONE if the RF Core accepted the command
  */
 uint32_t cc26x2_cc13x2_rfc_request_execute(uintptr_t cmd);
 
 /**
- * @brief   Confirm execution of the previously requested command
- *          execution.
+ * @brief   Check whether the radio operation command that was sent, or the
+ *          last one of its chain, has ended
  *
- * @pre cc26x2_cc13x2_rfc_request_execture MUST have been called before.
+ * @pre     The command was sent with @ref cc26x2_cc13x2_rfc_request_execute.
  *
- * @note    This only reports that the command, or the last command of a
- *          chain, has ended (LAST_COMMAND_DONE). The result is in the
- *          `status` field of the command structure.
+ * @note    This only tells that the command has ended (LAST_COMMAND_DONE).
+ *          How it ended is in the `status` field of the command structure.
  *
- * @return -EAGAIN if the command has not been finished.
- * @return 0 if the command has finished, with or without error.
+ * @return  0 if the command has ended, with or without error
+ * @return  -EAGAIN if it has not ended yet
  */
 int cc26x2_cc13x2_rfc_confirm_execute(void);
 
@@ -162,21 +167,23 @@ int cc26x2_cc13x2_rfc_abort_cmd(const volatile uint16_t *status);
 int cc26x2_cc13x2_rfc_stop_cmd(const volatile uint16_t *status);
 
 /**
- * @brief   Is data available on the data queue?
+ * @brief   Look for a received frame in a data queue
  *
- * Loops over the queue to check for finished entries.
+ * Goes through the entries of the queue and returns the first one the RF
+ * Core has finished.
  *
- * @note The data queue must be configured as a circular buffer (no last entry).
+ * @note    The entries of the queue have to form a ring (no last entry).
  *
- * @note After processing the data entry you must set the `status` field to
- *       @ref RFC_DATA_ENTRY_PENDING so the radio CPU can use it again.
+ * @note    When the frame has been read, set the `status` field of the entry
+ *          back to @ref RFC_DATA_ENTRY_PENDING, so that the RF Core can use
+ *          it again.
  *
- * @pre @p queue != NULL
+ * @pre     @p queue != NULL
  *
- * @param[in] queue The data queue to check.
+ * @param[in]   queue   the data queue
  *
- * @return The finished data entry.
- * @return NULL if no data is available.
+ * @return  the finished entry
+ * @return  NULL if there is none
  */
 rfc_data_entry_t *cc26x2_cc13x2_rfc_queue_recv(rfc_data_queue_t *queue);
 

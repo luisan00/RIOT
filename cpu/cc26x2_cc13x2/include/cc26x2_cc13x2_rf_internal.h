@@ -11,8 +11,9 @@
  * @{
  *
  * @file
- * @brief           CC26x2/CC13x2 IEEE 802.15.4g Sub-1-GHz driver internal
- *                  functions.
+ * @brief           Internals of the CC13x2 sub-GHz IEEE 802.15.4g radio driver:
+ *                  frequency bands, channel plans and the functions the
+ *                  radio HAL operations are built on
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author          Luis A. Ruiz <luisan00@hotmail.com>
@@ -44,13 +45,15 @@ extern "C" {
 #  define CONFIG_CC26X2_CC13X2_RF_RX_BUF_NUMOF (4)
 #endif
 
-/* XXX: shouldn't this reside on net/ieee802154.h */
 /**
  * @name    SUN PHY frequency band identifiers
  *
  * @see IEEE Std 802.15.4-2024, Table 10-73 and Table 10-74. Identifier 11
  *      names the 920 MHz band a second time there. The regions are those of
  *      Annex F of the standard, where it lists the band.
+ *
+ * They would be at home in `net/ieee802154.h`, and can move there when the
+ * radio HAL learns about the frequency bands of the SUN PHYs.
  * @{
  */
 #define IEEE802154_SUN_PHY_FREQ_169_MHZ     0   /**< 169.400-169.475 */
@@ -146,8 +149,9 @@ extern "C" {
  *
  * The other bands are not available. The 169 MHz, 450 MHz and 470 MHz bands
  * are outside the range of the RF front end, the modes of the 896 MHz,
- * 901 MHz and 928 MHz bands are not implemented, and the 2450 MHz band uses
- * the 2.4 GHz RF path, which this driver does not handle.
+ * 901 MHz and 928 MHz bands are not implemented, and in the 2450 MHz band
+ * the driver has the O-QPSK PHY instead, see the module
+ * `cc26x2_cc13x2_rf_24ghz`.
  *
  * Pick the band that is allowed where the device is used: the driver does not
  * check any regulation, neither the band nor duty cycle or channel limits.
@@ -221,7 +225,6 @@ extern "C" {
 #  define CONFIG_CC26X2_CC13X2_RF_PA20
 #endif
 
-/* TODO: teach the HAL about SUN PHY frequency bands? */
 /**
  * @name    SUN PHY channel information
  *
@@ -443,14 +446,14 @@ extern "C" {
 /** @} */
 
 /**
- * @brief   Length of the status length
- * The status section resides at the end of a received packet and
- * contains information such as the RSSI, sync word (SFD) that
- * was detected, etc
+ * @brief   Length of the status the RF Core appends to a received frame
  *
- * @note    If this value is updated @ref rf_cmd_prop_rx_adv MUST
- *          be updated accordingly. For now it only includes the
- *          RSSI which is all we need: the LQI is derived from it.
+ * The RF Core can append a few fields after the PSDU, such as the RSSI, a
+ * time stamp or a status byte. The driver only asks for the RSSI, one byte:
+ * the LQI is derived from it.
+ *
+ * @note    This has to match what @ref rf_cmd_prop_rx_adv asks the RF Core
+ *          to append.
  */
 #define CC26X2_CC13X2_RF_RX_STATUS_LEN 1
 
@@ -502,9 +505,11 @@ static inline bool cc26x2_cc13x2_rf_chan_is_valid(uint16_t chan)
 }
 
 /**
- * @brief   Get center frequency of a channel
+ * @brief   Get the center frequency of a channel
  *
- * @return Frequency, in Hz.
+ * @param[in]   chan    channel number
+ *
+ * @return  the frequency in Hz
  */
 static inline uint64_t cc26x2_cc13x2_rf_chan_freq(uint16_t chan)
 {
@@ -515,12 +520,11 @@ static inline uint64_t cc26x2_cc13x2_rf_chan_freq(uint16_t chan)
 }
 
 /**
- * @brief   Convert a frequency in Hz, to a frequency that the CMD_FS
- *          command can understand.
+ * @brief   Split a frequency in Hz into the two fields CMD_FS takes
  *
- * @param[in]   new_freq    New frequency, in Hz.
- * @param[out]  freq        Frequency, in MHz.
- * @param[out]  fract       Fractional part of the frequency.
+ * @param[in]   new_freq    the frequency in Hz
+ * @param[out]  freq        its whole MHz
+ * @param[out]  fract       the rest, in steps of 1/65536 MHz
  */
 static inline void cc26x2_cc13x2_rf_freq_convert(uint64_t new_freq,
                                                  uint16_t *freq,
@@ -529,13 +533,9 @@ static inline void cc26x2_cc13x2_rf_freq_convert(uint64_t new_freq,
     /* convert to MHz, discarding any decimal */
     *freq = (uint16_t)(new_freq / MHZ(1));
 
-    /* convert it back to Hz again and get difference from new_freq, to get
-     * the fractional part. Doing the calculation this way we can get a
-     * value (freq * (fract / 0x10000))) MHz that is close or equal
-     * to new_freq.
-     *
-     * See Section 25.3.3.1.5 CMD_FS: Frequency Synthesizer Controls Command
-     * on TRM (swcu185d) */
+    /* what is left over goes into the fractional part: the synthesizer is
+     * tuned to (freq + fract / 0x10000) MHz, which is new_freq or very
+     * close to it (SWCU185G, 25.3.3.1.5) */
     const uint64_t diff = new_freq - ((*freq) * MHZ(1));
     *fract = (uint16_t)((diff * 0x10000) / 1000000);
 }
@@ -609,7 +609,9 @@ extern rfc_cmd_fs_powerdown_t rf_cmd_fs_powerdown;
 extern rfc_cmd_sync_stop_rat_t rf_cmd_sync_stop_rat;
 
 /**
- * @brief   Initialize internal variables
+ * @brief   Prepare the RX queue and the command structures
+ *
+ * Nothing is sent to the RF Core.
  */
 void cc26x2_cc13x2_rf_internal_init(void);
 
@@ -635,31 +637,39 @@ void cc26x2_cc13x2_rf_settings_init(void);
 int cc26x2_cc13x2_rf_run_setup(void);
 
 /**
- * @brief   Request to turn on the radio
+ * @brief   Start to power the radio up
+ *
+ * The RF Core takes a moment to boot: @ref cc26x2_cc13x2_rf_confirm_on tells
+ * when the radio is ready.
  */
 void cc26x2_cc13x2_rf_request_on(void);
 
 /**
- * @brief   Confirm that the RF Core is on
+ * @brief   Check whether the radio is on, and carry on with its start
  *
- * @pre cc26x2_cc13x2_rf_request_on MUST have been called before.
+ * Once the RF Core has booted this sets the radio up and tunes it. Call it
+ * until it does not return -EAGAIN any more.
  *
- * @return -EAGAIN if the RF Core is still starting.
- * @return 0 if the RF Core is on.
+ * @pre     @ref cc26x2_cc13x2_rf_request_on was called.
+ *
+ * @return  0 if the radio is on
+ * @return  -EAGAIN if the radio is still starting
+ * @return  -EIO if the RF Core rejected the setup or it failed
  */
 int cc26x2_cc13x2_rf_confirm_on(void);
 
 /**
- * @brief   Request a CCA
+ * @brief   Start a CCA with the carrier sense command of the RF Core
  *
- * @note The CCA is confirmed when the interrupt
- *       `CPE_IRQ_LAST_COMMAND_DONE` is raised AND
- *       rf_cmd_prop_cs.status is either #RFC_PROP_DONE_IDLE
- *       or `RFC_PROP_DONE_BUSY`.
- *       `CPE_IRQ_LAST_COMMAND_DONE` MUST be enabled.
+ * The result comes later, with the interrupt `CPE_IRQ_LAST_COMMAND_DONE`,
+ * which the caller has to enable: the status of @ref rf_cmd_prop_cs is then
+ * #RFC_PROP_DONE_IDLE for a clear channel or `RFC_PROP_DONE_BUSY` for a busy
+ * one.
  *
- * @return 0 on success.
- * @return negative errno value on error.
+ * @pre     RX is off.
+ *
+ * @return  0 if the RF Core accepted the command
+ * @return  -EIO if it did not
  */
 int cc26x2_cc13x2_rf_request_cca(void);
 
@@ -677,9 +687,11 @@ void cc26x2_cc13x2_rf_off(void);
  *
  * Does nothing if RX is already on.
  *
- * @return 0 on success.
- * @return -EBUSY if another radio operation command is running.
- * @return -EIO on any other error.
+ * @return  0 on success
+ * @return  -ENOBUFS if every receive buffer holds a frame that waits to be
+ *          read
+ * @return  -EBUSY if another radio operation command is running
+ * @return  -EIO on any other error
  */
 int cc26x2_cc13x2_rf_rx_start(void);
 
@@ -777,7 +789,9 @@ void cc26x2_cc13x2_rf_rx_release_last(void);
 void cc26x2_cc13x2_rf_rx_release_all(void);
 
 /**
- * @brief   Write PDSU into transmit buffer
+ * @brief   Write the PSDU of a frame into the transmit buffer
+ *
+ * @param[in]   iolist  the frame, without the FCS
  *
  * @return 0 on success
  * @return negative errno value on error.
@@ -791,15 +805,17 @@ int cc26x2_cc13x2_rf_write(const iolist_t *iolist);
  * The frame written with @ref cc26x2_cc13x2_rf_write is not touched: it may
  * be waiting for a retransmission.
  *
+ * @param[in]   iolist  the ACK frame, without the FCS
+ *
  * @return 0 on success
  * @return negative errno value on error.
  */
 int cc26x2_cc13x2_rf_write_ack(const iolist_t *iolist);
 
 /**
- * @brief   Request the RF Core to transmit our packet.
+ * @brief   Ask the RF Core to transmit the frame in the transmit buffer
  *
- * @pre @ref cc26x2_cc13x2_rf_write MUST have been called.
+ * @pre     The frame was written with @ref cc26x2_cc13x2_rf_write.
  *
  * @param[in]   cca         perform a CCA first and only transmit if the
  *                          channel is clear
@@ -814,9 +830,9 @@ int cc26x2_cc13x2_rf_write_ack(const iolist_t *iolist);
 int cc26x2_cc13x2_rf_request_transmit(bool cca, bool wait_ack);
 
 /**
- * @brief   Request the RF Core to transmit the ACK frame, without CCA
+ * @brief   Ask the RF Core to transmit the ACK frame, without CCA
  *
- * @pre @ref cc26x2_cc13x2_rf_write_ack MUST have been called.
+ * @pre     The frame was written with @ref cc26x2_cc13x2_rf_write_ack.
  *
  * @return  0 if the RF Core accepted the request
  * @return  -EBUSY if another radio operation is running
@@ -851,62 +867,73 @@ int cc26x2_cc13x2_rf_tx_chain_state(bool cca, bool wait_ack);
 uint32_t cc26x2_cc13x2_rf_ack_delay_us(void);
 
 /**
- * @brief   Set the CCA threshold for the radio.
+ * @brief   Set the CCA threshold
  *
- * @param[in]   threshold   Threshold for CCA in dBm.
+ * @param[in]   threshold   level in dBm from which the channel counts as busy
  */
 void cc26x2_cc13x2_rf_set_cca_threshold(int8_t threshold);
 
 /**
- * @brief   Change channel
+ * @brief   Tune the radio to a channel
  *
- * @param[in]   channel Channel to set.
+ * @pre     The radio is on and idle.
  *
- * @return 0 on success.
- * @return negative errno value on error.
+ * @param[in]   channel     channel number, one of the selected band
+ *
+ * @return  0 on success
+ * @return  -EINVAL if the band has no such channel
+ * @return  -EIO if the RF Core rejected the command or it failed
  */
 int cc26x2_cc13x2_rf_change_chan(uint16_t channel);
 
 /**
- * @brief   Set transmit power
+ * @brief   Set the TX power
  *
- * @param[in]   pow   Transmit power in dBm.
+ * The power is taken from the PA table of the board: the lowest entry that
+ * is not below @p pow, or the highest one if @p pow is above the table. It
+ * is used from the next frame on.
  *
- * @return 0 on success.
- * @return negative errno value on error.
+ * @param[in]   pow     TX power in dBm
+ *
+ * @return  0 on success
+ * @return  -EIO if the RF Core rejected the command
  */
 int cc26x2_cc13x2_rf_set_tx_pwr(int16_t pow);
 
 /**
- * @brief   Set PAN ID.
+ * @brief   Set the PAN ID of the address filter
  *
- * @param[in]   pan_id The PAN ID.
+ * @param[in]   pan_id  the PAN ID
  */
 void cc26x2_cc13x2_rf_set_pan_id(uint16_t pan_id);
 
 /**
- * @brief   Set short IEEE 802.154.g address.
+ * @brief   Set the short address of the address filter
  *
- * @param[in]   short_addr The short address.
+ * @param[in]   short_addr  the short address
  */
 void cc26x2_cc13x2_rf_set_short_addr(network_uint16_t short_addr);
 
 /**
- * @brief   Set long IEEE 802.15.4g MAC address.
+ * @brief   Set the long address of the address filter
  *
- * @param[in]   long_addr The long address.
+ * @param[in]   long_addr   the long address
  */
 void cc26x2_cc13x2_rf_set_long_addr(eui64_t long_addr);
 
 /**
- * @brief   Filter an L2 payload.
+ * @brief   Check whether a frame is for this device
  *
- * @note @p mhr length should be enough to access the destination PAN ID and
- *       address.
+ * A frame passes if its destination PAN ID is the one of the device or the
+ * broadcast one, and its destination address is the short or the long
+ * address of the device, or the short broadcast address.
  *
- * @brief[in]   mhr   MAC header.
+ * @note    @p mhr has to be long enough to hold the destination PAN ID and
+ *          address.
  *
- * @return true if it passed the filter, false otherwise.
+ * @param[in]   mhr     MAC header of the frame
+ *
+ * @return  true if the frame passes the filter
  */
 bool cc26x2_cc13x2_rf_l2_filter(uint8_t *mhr);
 
@@ -926,7 +953,8 @@ bool cc26x2_cc13x2_rf_l2_filter(uint8_t *mhr);
  * | 200 ksym/s   | 1.0              | 64        | 100 kHz   | 4 bytes  |
  * | 300 ksym/s   | 0.5              | 32        | 75 kHz    | 4 bytes  |
  *
- * The power-on mode is 50 ksym/s with modulation index 1.0.
+ * The radio starts in the mode of 200 ksym/s with modulation index 1.0, the
+ * default of the stack.
  *
  * @pre     The radio is on and idle.
  *

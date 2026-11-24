@@ -96,7 +96,9 @@ void power_clock_enable_uart(uart_t uart);
 void power_clock_disable_uart(uart_t uart);
 
 /**
- * @brief   Enable RF Core clock
+ * @brief   Enable the clock gate of the RF Core
+ *
+ * Only has effect while the power domain of the RF Core is on.
  */
 void power_clock_enable_rfc(void);
 

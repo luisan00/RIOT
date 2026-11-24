@@ -178,10 +178,10 @@ void cc26x2_cc13x2_rf_internal_init(void)
     /* Initialize data entries as general, with a length field of 2 bytes
      * (uint16_t) and the correct RX buffer size */
     for (unsigned i = 0; i < CONFIG_CC26X2_CC13X2_RF_RX_BUF_NUMOF; i++) {
-        /* verify that the compiler put our RX buffers on aligned memory */
+        /* the RF Core needs the RX buffers on 4-byte boundaries */
         assert(((uintptr_t)&_rx_buf[i] & 0x3) == 0);
 
-        /* the initial bytes of an RX buffer is the rfc_data_entry_t structure */
+        /* an RX buffer starts with its rfc_data_entry_t structure */
         rfc_data_entry_t *entry = &_rx_buf[i].entry;
 
         entry->status = RFC_DATA_ENTRY_PENDING;
@@ -717,8 +717,7 @@ static int _frame_write(uint8_t *tx_buf, size_t tx_buf_len, const iolist_t *ioli
     size_t total_len;
     size_t psdu_len = 0;
 
-    /* PHY header size reserved (two bytes), after the PHR the
-     * PSDU starts */
+    /* the first two bytes are for the PHR, the PSDU comes after them */
     uint8_t *buf_pos = tx_buf + IEEE802154_PHY_MR_FSK_PHR_LEN;
     for (const iolist_t *iol = iolist; iol; iol = iol->iol_next) {
         psdu_len += iol->iol_len;
@@ -730,21 +729,14 @@ static int _frame_write(uint8_t *tx_buf, size_t tx_buf_len, const iolist_t *ioli
         buf_pos += iol->iol_len;
     }
 
-    /* Length in MR-FSK PHR. Includes the PSDU + FCS */
+    /* the length in the PHR counts the PSDU and the FCS */
     total_len = psdu_len + fcs_len;
     if (total_len > IEEE802154G_FRAME_LEN_MAX) {
         return -EOVERFLOW;
     }
 
-    /* Prepare the MR-FSK PHR
-     * - No mode switching.
-     * - Total length: PSDU + FCS length
-     * - FCS type (CRC-16)
-     *
-     * Total length = len (payload) + CRC length
-     *
-     * The Radio will flip the bits around, so tx_buf[0] must have the
-     * length LSBs (PHR[15:8] and tx_buf[1] will have PHR[7:0]
+    /* The PHR of an MR-FSK frame: no mode switch, a 16-bit FCS, data
+     * whitening and the length of the PSDU with its FCS.
      *
      * This is the example of [TRM] 25.10.5.2.1 with the CRC-16 bit added.
      * The radio reads the 16-bit header from the buffer in little-endian
@@ -762,10 +754,8 @@ static int _frame_write(uint8_t *tx_buf, size_t tx_buf_len, const iolist_t *ioli
     tx_buf[0] = (((total_len) >> 0) & 0xFF);
     tx_buf[1] = (((total_len) >> 8) & 0xFF) + 0x08 + 0x10;
 
-    /* The length of the buffer used to transmit is the PHR + PSDU,
-     * it does not include the FCS size as the radio writes it on
-     * it's own depending on the configured FCS, which is CRC-16 in
-     * our case */
+    /* the packet length of the command is the PHR and the PSDU, without
+     * the FCS: the RF Core computes and appends it */
     return IEEE802154_PHY_MR_FSK_PHR_LEN + psdu_len;
 }
 

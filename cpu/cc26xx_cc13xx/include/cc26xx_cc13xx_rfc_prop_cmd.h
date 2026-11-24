@@ -37,7 +37,7 @@ extern "C" {
 
 #define RFC_DECIM_MODE_AUTO         (0) /**< Automatic PDIF decimation */
 #define RFC_DECIM_MODE_FORCE_0      (1) /**< Force PDIF decimation to 0 */
-#define RFC_DECIM_MODE_FORCE_1      (2) /**< Force PDIF decimation to 1 */
+#define RFC_DECIM_MODE_FORCE_1      (3) /**< Force PDIF decimation to 1 */
 #define RFC_DECIM_MODE_FORCE_2      (5) /**< Force PDIF decimation to 2 */
 
 #define RFC_PREAM_MODE_0_FIRST      (0) /**< Send 0 as the first preamble bit */
@@ -166,8 +166,8 @@ typedef struct {
         /**
          * Select coding
          *
-         * 0h = Uncoded binary modulation
-         * 10h = Manchester coded binary modulation
+         * 0 = Uncoded binary modulation
+         * 10 = Manchester coded binary modulation
          * Others: Reserved
          */
         uint16_t fec_mode:4;
@@ -475,7 +475,7 @@ typedef struct {
     int8_t len_offset; /**< Signed value to add to length field */
     rfc_trigger_t end_trigger; /**< Trigger for ending the operation */
     /**
-     * Time used together with endTrigger for ending the operation
+     * Time used together with end_trigger for ending the operation
      */
     rfc_ratmr_t end_time;
     uint8_t *addr; /**< Pointer to address list */
@@ -545,7 +545,7 @@ typedef struct {
          * 1h = Timeout with channel state Invalid treated as Idle.
          */
         uint8_t timeout_res:1;
-    } conf; /**< Carrier sense configuration command */
+    } conf; /**< Carrier sense configuration */
     int8_t rssi_thr; /**< RSSI threshold */
     uint8_t num_rssi_idle; /**< Number of consecutive RSSI measurements below
                                 the threshold needed before the channel is

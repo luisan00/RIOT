@@ -87,13 +87,14 @@ typedef struct {
     rfc_trigger_t start_trigger; /**< Identification of the trigger that
                                       starts the operation */
     rfc_cond_t condition; /**< Condition for running next command */
-    uint16_t frequency; /**< The frequency in MHz to tune to*/
+    uint16_t frequency; /**< The frequency in MHz to tune to */
     uint16_t fract_freq; /**< Fractional part of the frequency to tune to */
     struct {
         uint8_t txmode:1; /**< 0h = Start synth in RX mode, 1h = Start synth in
                                TX mode */
-        uint8_t ref_freq:6; /**< 0h = Use default reference frequenc, others =
-                                 Use reference frequency 48 MHz */
+        uint8_t ref_freq:6; /**< 0h = Use default reference frequency,
+                                 others = Use reference frequency
+                                 48 MHz / ref_freq */
     } synth_conf; /**< Synthesizer configuration */
     uint8_t __dummy0; /**< Reserved, always write 0 */
     uint8_t __dummy1; /**< Reserved */
@@ -103,12 +104,12 @@ typedef struct {
 /** @} */
 
 /**
- * @brief   CMD_FS
+ * @brief   CMD_FS_POWERDOWN
  * @{
  */
-#define RFC_CMD_FS_POWERDOWN (0x080D) /**< CMD_FS command ID */
+#define RFC_CMD_FS_POWERDOWN (0x080D) /**< CMD_FS_POWERDOWN command ID */
 /**
- * @brief   Powerdown frequency synthesizer
+ * @brief   Power down the frequency synthesizer
  */
 typedef struct {
     uint16_t command_no; /**< The command ID number */
@@ -147,9 +148,9 @@ typedef struct {
  * @brief   CMD_SYNC_START_RAT
  * @{
  */
-#define RFC_CMD_SYNC_START_RAT (0x080A) /**< CMD_SYNC_STOP_RAT command ID */
+#define RFC_CMD_SYNC_START_RAT (0x080A) /**< CMD_SYNC_START_RAT command ID */
 /**
- * @brief   Synchrously Start Radio Timer Command
+ * @brief   Synchronously Start Radio Timer Command
  */
 typedef struct {
     uint16_t command_no; /**< The command ID number */

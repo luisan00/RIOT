@@ -11,7 +11,7 @@
  * @file
  * @brief       IEEE address of the CC13x2/CC26x2
  *
- * The references in the comments are those of cc26x2_cc13x2_rf_internal.c.
+ * The references in the comments are those of cc26x2_cc13x2_rf_settings.c.
  *
  * @author      Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author      Luis A. Ruiz <luisan00@hotmail.com>
@@ -37,8 +37,8 @@
  *   (`hw_ccfg.h` of [SDK]).
  *
  * Both are numbers, so the first byte in memory is the last one of the
- * EUI-64. On a LAUNCHXL-CC1352P1 the FCFG words read 0x1CA5C2EF and
- * 0x00124B00 for the address 00:12:4B:00:1C:A5:C2:EF, which starts with
+ * EUI-64. On a LaunchPad the FCFG words read, for example, 0x1C123456 and
+ * 0x00124B00 for the address 00:12:4B:00:1C:12:34:56, which starts with
  * TI's OUI 00:12:4B.
  */
 void cc26x2_cc13x2_rf_get_eui64(eui64_t *addr)

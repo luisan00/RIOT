@@ -84,7 +84,8 @@
  *   senses the carrier with a command of its own and only transmits if the
  *   channel was clear for the CCA duration. IEEE Std 802.15.4-2024, 11.2.8,
  *   does not recommend CCA mode 1 for the SUN FSK PHY when the channel
- *   spacing is below twice the symbol rate, and this radio has no other
+ *   spacing is below twice the symbol rate, and the driver has no other
+ *   mode in this band
  * - CSMA-CA before a transmission, with the backoff exponents and the number
  *   of retries set with `set_csma_params` of the radio HAL (0 retries: a
  *   single CCA, a negative number: none). The radio listens during the
@@ -134,12 +135,21 @@
  *
  * Changing between the two bands at run time is not supported.
  *
- * The driver has been tested on the CC1352P1 LaunchPad only.
+ * ## Tested hardware
+ *
+ * - Sub-GHz: LAUNCHXL-CC1312R1 and LAUNCHXL-CC1352P1, between them and
+ *   with an AT86RF215 running RIOT. The 20 dBm PA was tried on the
+ *   LAUNCHXL-CC1352P1.
+ * - 2.4 GHz: LAUNCHXL-CC1352P1, with an AT86RF215 and an nRF52840 running
+ *   RIOT.
+ *
+ * The LAUNCHXL-CC1352R1 and the LAUNCHXL-CC1352P-2 have the same radio and
+ * the driver builds for them, but nobody has tried it on those boards yet.
  *
  * @{
  *
  * @file
- * @brief           Interface of the CC13x2 sub-GHz IEEE 802.15.4g radio driver
+ * @brief           Interface of the CC13x2 IEEE 802.15.4 radio driver
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author          Francisco Acosta <fco.ja.ac@gmail.com>
@@ -154,10 +164,11 @@ extern "C" {
 #endif
 
 /**
- * @brief   IEEE 802.15.4 radio timer configuration
+ * @brief   Hardware timer of the sub-GHz driver
  *
- * This radio relies on a dedicated hardware timer to maintain IFS,
- * the default timer may be overwritten in the board configuration.
+ * The sub-GHz driver needs a timer of its own, for the delay before an ACK
+ * frame and for the interframe spacing. A board can choose another one in
+ * its configuration.
  */
 #ifndef CC26X2_CC13X2_RF_TIMER
 #  define CC26X2_CC13X2_RF_TIMER TIMER_DEV(2)
@@ -213,9 +224,9 @@ static inline uint8_t cc26x2_cc13x2_rf_rssi_to_lqi(int8_t rssi)
 void cc26x2_cc13x2_rf_init(void);
 
 /**
- * @brief   Setup cc26x2_cc13x2 in order to be used with the IEEE 802.15.4 Radio HAL
+ * @brief   Set the radio up as a device of the IEEE 802.15.4 radio HAL
  *
- * @note    This functions MUST be called before @ref cc26x2_cc13x2_rf_init.
+ * @note    Call this function before @ref cc26x2_cc13x2_rf_init.
  *
  * @param[in] hal  pointer to the HAL descriptor associated to the device.
  */

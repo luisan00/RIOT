@@ -10,7 +10,7 @@
  * @{
  *
  * @file
- * @brief       IEEE 802.15.4 Radio HAL implementation for the cc26x2_cc13x2 RF driver
+ * @brief       CC13x2 sub-GHz IEEE 802.15.4g radio: operations of the radio HAL
  *
  * @author      Jean Pierre Dudey <jeandudey@hotmail.com>
  * @author      Francisco Acosta <fco.ja.ac@gmail.com>
@@ -38,10 +38,10 @@
 /** The FCS is calculated by the radio */
 #define ACK_PSDU_LEN        (IEEE802154_ACK_FRAME_LEN - IEEE802154_FCS_LEN)
 
-#define MAC_TIMER_CHAN_ACK  (0U) /**< MAC timer channel for transmitting an ACK
-                                      frame */
-#define MAC_TIMER_CHAN_IFS  (1U) /**< MAC timer channel for handling IFS
-                                      logic */
+#define MAC_TIMER_CHAN_ACK  (0U) /**< MAC timer channel of the delay before an
+                                      ACK frame */
+#define MAC_TIMER_CHAN_IFS  (1U) /**< MAC timer channel of the interframe
+                                      spacing */
 
 /* The MAC timer counts microseconds */
 #define TIMER_FREQ          (1000000UL)
@@ -108,7 +108,8 @@ static bool _rx_enabled;
 static struct {
     bool promisc  : 1; /**< whether the device is in promiscuous mode */
     bool auto_ack : 1; /**< whether the radio sends ACKs automatically */
-    bool ifs      : 1; /**< whether the radio is in IFS mode */
+    bool ifs      : 1; /**< whether the interframe spacing after a frame of
+                            ours is running */
 } _cfg = {
     .promisc  = false,
     .auto_ack = true,
@@ -147,20 +148,21 @@ static ztimer_t _csma_timer = { .callback = _csma_timer_cb };
 static uint8_t _ack[ACK_PSDU_LEN];
 
 enum {
-    CCA_RESULT_NONE,    /**< No result produced yet */
-    CCA_RESULT_IDLE,    /**< Channel is Idle */
-    CCA_RESULT_BUSY,    /**< Channel is Busy */
+    CCA_RESULT_NONE,    /**< no result yet */
+    CCA_RESULT_IDLE,    /**< the channel is clear */
+    CCA_RESULT_BUSY,    /**< the channel is busy */
 } _cca_result;
 
 /** CMD_PROP_CS was accepted by the RF Core and its end is awaited */
 static volatile bool _cca_pending;
 
 enum {
-    TX_STATE_IDLE,         /**< We are not transmitting anything */
-    TX_STATE_TX,           /**< Normal TX */
+    TX_STATE_IDLE,         /**< Nothing is being transmitted */
+    TX_STATE_TX,           /**< A frame of the upper layer is on its way:
+                                its CCA, the frame or the wait for its ACK */
     TX_STATE_ACK_WAIT,     /**< A frame was received and its ACK is due: the
                                 timer of the AIFS is running */
-    TX_STATE_TX_ACK,       /**< Transmitting ACK */
+    TX_STATE_TX_ACK,       /**< The ACK of a received frame is being sent */
 };
 
 static volatile uint8_t _tx_state;
@@ -282,10 +284,10 @@ static void _rx_entry(ieee802154_dev_t *dev, rfc_data_entry_general_t *entry)
     }
 
     if (send_ack) {
-        /* Copy the sequence number to the ACK frame we'll send. */
+        /* the ACK carries the sequence number of the frame */
         _ack[2] = psdu[2];
 
-        /* To send the ACK we need to stop receiving. */
+        /* RX has to end before the ACK can be sent */
         _rx_abort();
 
         /* The ACK goes out AIFS after the frame. Until then every request
@@ -639,7 +641,7 @@ static void _tx_done(ieee802154_dev_t *dev)
     }
 
     /* -EBUSY: the channel was busy and nothing was sent. The radio stays
-     * idle, as the HAL asks: the SubMAC tries again after a backoff. */
+     * idle, as the HAL asks, and the upper layer decides what comes next. */
     _tx_result = res;
     if (_tx_state == TX_STATE_ACK_WAIT) {
         /* a frame that came instead of the ACK is acknowledged first, the
@@ -767,13 +769,13 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
     uint16_t pktlen;
     int res;
 
-    /* shouldn't be null as we informed about a packet */
+    /* the upper layer was told about a frame, so one should be waiting */
     entry = cc26x2_cc13x2_rf_recv();
     if (entry == NULL) {
         return -ENOENT;
     }
 
-    /* first two bytes are PSDU length */
+    /* the entry starts with the length, in two bytes */
     pktlen = _entry_len(entry);
     psdu = (&entry->data) + sizeof(uint16_t);
 
@@ -792,7 +794,7 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
         pktlen -= CC26X2_CC13X2_RF_RX_STATUS_LEN;
         DEBUG("[cc26x2_cc13x2_rf]: reading packet of length %i\n", pktlen);
         if (info != NULL) {
-            /* RSSI resides at the end of the PSDU */
+            /* the RF Core appends the RSSI after the PSDU */
             int8_t rssi = (int8_t)psdu[pktlen];
 
             DEBUG("RSSI: %i\n", (int)rssi);
@@ -812,7 +814,7 @@ static int _len(ieee802154_dev_t *dev)
 {
     (void)dev;
 
-    /* shouldn't be null as we informed about a packet */
+    /* the upper layer was told about a frame, so one should be waiting */
     rfc_data_entry_general_t *entry = cc26x2_cc13x2_rf_recv();
     if (entry == NULL) {
         return -ENOENT;
@@ -1076,7 +1078,7 @@ static int _confirm_on(ieee802154_dev_t *dev)
         return -EAGAIN;
     }
 
-    /* turn on the RX IRQs */
+    /* from now on a received frame raises an interrupt */
     RFC_DBELL_NONBUF->RFCPEIEN |= CPE_IRQ_RX_ENTRY_DONE;
 
     return 0;
@@ -1259,8 +1261,8 @@ static int _get_frame_filter_mode(ieee802154_dev_t *dev,
 
 void cc26x2_cc13x2_rf_hal_setup(ieee802154_dev_t *hal)
 {
-    /* We don't set hal->priv because the context of this device is global */
-    /* We need to store a reference to the HAL descriptor though for the ISR */
+    /* There is one radio and its state is global, so hal->priv is not
+     * used. The descriptor is kept for the interrupt handler. */
     hal->driver = &cc26x2_cc13x2_rf_ops;
     cc26x2_cc13x2_rf_hal = hal;
 }

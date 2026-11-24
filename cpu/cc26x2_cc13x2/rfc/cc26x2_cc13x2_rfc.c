@@ -9,7 +9,7 @@
  * @{
  *
  * @file
- * @brief           CC26x2/CC13x2 RF Core common functions
+ * @brief           CC26x2/CC13x2 RF Core: power, commands and interrupts
  *
  * The sequences in this file are checked against these documents from
  * Texas Instruments:
@@ -198,8 +198,8 @@ void cc26x2_cc13x2_rfc_finish_on(void (* cpe_patch_fn)(void))
     osc_hf_source_switch(OSC_XOSC_HF);
 
     /* The CPE patch is applied after BOOT_DONE and before any command, as
-     * RF_applyRfCorePatch(RF_PHY_BOOTUP_MODE) does in [SDK]. The proprietary
-     * PHYs used here need no MCE or RFE patch.
+     * RF_applyRfCorePatch(RF_PHY_BOOTUP_MODE) does in [SDK]. The PHYs of the
+     * two radio drivers need no MCE or RFE patch.
      *
      * TI's patch functions copy the patch image only the first time they
      * are called after a reset of the MCU, and set the patch table every
@@ -321,7 +321,7 @@ int cc26x2_cc13x2_rfc_confirm_execute(void)
  *   with DONE_STOPPED ([TRM] 25.3.3.2.2). At 50 kbit/s a frame can take
  *   hundreds of milliseconds, too long to wait for here.
  * - CMD_ABORT (0x0401) ends it as soon as possible, with DONE_ABORT
- *   ([TRM] 25.3.3.2.1). This is the one used.
+ *   ([TRM] 25.3.3.2.1). This is the one this function sends.
  *
  * For both commands CMDSTA is Done in all cases and "may be updated before
  * the radio operation ends". Until the operation has really ended a new radio
