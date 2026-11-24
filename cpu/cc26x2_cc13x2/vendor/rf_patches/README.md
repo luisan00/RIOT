@@ -9,11 +9,19 @@ The files are unmodified copies from the SimpleLink CC13xx/CC26xx SDK
 https://github.com/TexasInstruments/simplelink-lowpower-f2-sdk), directory
 `source/ti/devices/cc13x2_cc26x2/rf_patches`:
 
-| File                    | Here                                |
-|:----------------------- |:----------------------------------- |
-| `rf_patch_cpe_prop.c`   | this directory                      |
-| `rf_patch_cpe_prop.h`   | `cpu/cc26x2_cc13x2/include/vendor`  |
+| File                            | Here                                |
+|:------------------------------- |:----------------------------------- |
+| `rf_patch_cpe_prop.c`           | this directory                      |
+| `rf_patch_cpe_prop.h`           | `cpu/cc26x2_cc13x2/include/vendor`  |
+| `rf_patch_cpe_ieee_802_15_4.c`  | this directory                      |
+| `rf_patch_cpe_ieee_802_15_4.h`  | `cpu/cc26x2_cc13x2/include/vendor`  |
 
-`rf_patch_cpe_prop` is the patch of the command and packet engine (CPE) for
-the proprietary mode, the one TI's radio settings name for every PHY the
-driver uses. Its license, BSD 3-Clause, is in the header of each file.
+They are patches of the command and packet engine (CPE):
+
+- `rf_patch_cpe_prop` for the proprietary mode. It is the patch that TI's
+  radio settings name for every PHY the sub-GHz driver uses.
+- `rf_patch_cpe_ieee_802_15_4` for the IEEE 802.15.4 mode. It is the patch of
+  TI's setting for the O-QPSK PHY in the 2.4 GHz band.
+
+Only the patch of the driver variant in use ends up in the firmware. The
+license of the files, BSD 3-Clause, is in the header of each one.
