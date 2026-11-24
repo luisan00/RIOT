@@ -7,15 +7,24 @@
 #pragma once
 
 /**
- * @defgroup        cpu_cc26x2_cc13x2_rf CC13x2 sub-GHz IEEE 802.15.4g radio
+ * @defgroup        cpu_cc26x2_cc13x2_rf CC13x2 IEEE 802.15.4 radio
  * @ingroup         cpu_cc26x2_cc13x2
  * @ingroup         drivers_netdev
- * @brief           Driver for the sub-GHz radio of the CC1312R and CC1352
- *                  MCUs, for the IEEE 802.15.4 radio HAL
+ * @brief           Driver for the radio of the CC1312R and CC1352 MCUs, for
+ *                  the IEEE 802.15.4 radio HAL
  *
- * The driver implements the MR-FSK PHY of IEEE 802.15.4g (SUN FSK) on top of
- * the proprietary mode of the RF Core. Boards select it as `netdev_default`;
- * with GNRC it runs below the SubMAC (`netdev_ieee802154_submac`).
+ * The RF Core of these MCUs works in one band at a time, and the driver has
+ * a variant for each one, chosen when the application is built:
+ *
+ * - Sub-GHz, the default: the MR-FSK PHY of IEEE 802.15.4g (SUN FSK), on top
+ *   of the proprietary mode of the RF Core.
+ * - 2.4 GHz, with the module `cc26x2_cc13x2_rf_24ghz`, on the CC1352 only:
+ *   the O-QPSK PHY, on top of the IEEE 802.15.4 mode of the RF Core. See
+ *   "The 2.4 GHz band" below.
+ *
+ * Boards select the driver as `netdev_default`; with GNRC it runs below the
+ * SubMAC (`netdev_ieee802154_submac`). What follows up to that section is
+ * about the sub-GHz variant.
  *
  * ## Operating modes
  *
@@ -101,12 +110,38 @@
  *
  * - The retransmissions, which the SubMAC does
  * - 4-FSK, FEC and mode switch
- * - The 2.4 GHz band of the CC1352
+ *
+ * ## The 2.4 GHz band
+ *
+ * `USEMODULE += cc26x2_cc13x2_rf_24ghz` builds the driver for the O-QPSK PHY
+ * of the 2.4 GHz band, 250 kbit/s on channels 11 to 26, instead of the
+ * sub-GHz one. The RF Core does most of the MAC timing by itself in this
+ * mode, and the driver passes that on:
+ *
+ * - Address filtering and automatic ACK frames, sent 192 us after the frame
+ * - CSMA-CA with its backoffs before a transmission, or a single CCA, or
+ *   none, as set with `set_csma_params` of the radio HAL
+ * - Reception of the ACK of a transmitted frame and retransmissions; the
+ *   number of retransmissions is reported
+ * - CCA modes 1, 2 and 3 of the standard. The channel also counts as busy
+ *   while a frame is being received, and that frame is not interrupted
+ * - Interframe spacing after a transmission
+ * - RSSI, and the LQI derived from it as in the sub-GHz band
+ * - TX power from the 2.4 GHz PA table of the board, up to 5 dBm
+ * - Promiscuous mode
+ *
+ * The SubMAC therefore leaves CSMA-CA and retransmissions to the radio.
+ * ACK frames are not passed to the upper layer.
+ *
+ * Changing between the two bands at run time is not supported.
  *
  * ## Tested hardware
  *
- * LAUNCHXL-CC1312R1 and LAUNCHXL-CC1352P1, between them and with an AT86RF215
- * running RIOT. The 20 dBm PA was tried on the LAUNCHXL-CC1352P1.
+ * - Sub-GHz: LAUNCHXL-CC1312R1 and LAUNCHXL-CC1352P1, between them and
+ *   with an AT86RF215 running RIOT. The 20 dBm PA was tried on the
+ *   LAUNCHXL-CC1352P1.
+ * - 2.4 GHz: LAUNCHXL-CC1352P1, with an AT86RF215 and an nRF52840 running
+ *   RIOT.
  *
  * The LAUNCHXL-CC1352R1 and the LAUNCHXL-CC1352P-2 have the same radio and
  * the driver builds for them, but nobody has tried it on those boards yet.
@@ -138,6 +173,50 @@ extern "C" {
 #ifndef CC26X2_CC13X2_RF_TIMER
 #  define CC26X2_CC13X2_RF_TIMER TIMER_DEV(2)
 #endif
+
+/**
+ * @name    Range of the LQI
+ *
+ * The LQI of a frame is taken from its RSSI, one of the methods of IEEE Std
+ * 802.15.4-2024, 11.2.7: 0 and 255 stand for the weakest and the strongest
+ * signal, with the values in between spread evenly, here 3.2 per dB.
+ *
+ * The limits are the ones TI's 15.4-Stack has for its own conversion
+ * (`MAC_RADIO_RECEIVER_SENSITIVITY_DBM` and
+ * `MAC_RADIO_RECEIVER_SATURATION_DBM` in `mac_radio_defs.h` of the SimpleLink
+ * SDK). The upper one is also the maximum input level that the standard asks
+ * of the SUN FSK and O-QPSK PHYs.
+ *
+ * In the 2.4 GHz band the RF Core also gives a correlation value for each
+ * frame. It is not used: on a CC1352P1 it stayed the same from -34 dBm down
+ * to -95 dBm and only fell in the last 5 dB before frames were lost, at
+ * -100 dBm.
+ * @{
+ */
+#define CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM   (-100)  /**< RSSI of LQI 0 */
+#define CC26X2_CC13X2_RF_LQI_RSSI_MAX_DBM   (-20)   /**< RSSI of LQI 255 */
+/** @} */
+
+/**
+ * @brief   LQI of a frame received with a given RSSI
+ *
+ * @param[in]   rssi    RSSI in dBm; -128 if the RF Core had none
+ *
+ * @return  the LQI
+ */
+static inline uint8_t cc26x2_cc13x2_rf_rssi_to_lqi(int8_t rssi)
+{
+    /* this also covers -128, "no RSSI is available" (SWCU185G, 25.3.3.2.3) */
+    if (rssi <= CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM) {
+        return 0;
+    }
+    if (rssi >= CC26X2_CC13X2_RF_LQI_RSSI_MAX_DBM) {
+        return UINT8_MAX;
+    }
+
+    return ((rssi - CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM) * UINT8_MAX) /
+           (CC26X2_CC13X2_RF_LQI_RSSI_MAX_DBM - CC26X2_CC13X2_RF_LQI_RSSI_MIN_DBM);
+}
 
 /**
  * @brief   Initialize radio hardware (RF Core)

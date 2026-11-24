@@ -40,7 +40,9 @@ operating mode that RIOT's AT86RF215 driver uses, for compatibility with it.
 The plan of the standard, the other bands, the channel spacing and the
 operating modes are described in the documentation of the driver.
 
-The 2.4 GHz band of the CC1352R is not supported yet.
+With `USEMODULE += cc26x2_cc13x2_rf_24ghz` the driver is built for the 2.4 GHz
+band instead, with the O-QPSK PHY of IEEE 802.15.4 on channels 11 to 26 and up
+to 5 dBm. The radio works in one of the two bands, chosen at build time.
 
 The driver was developed on the LAUNCHXL-CC1312R1 and the LAUNCHXL-CC1352P1,
 which have the same radio. It builds for this board, but nobody has tried it

@@ -148,8 +148,9 @@ extern "C" {
  *
  * The other bands are not available. The 169 MHz, 450 MHz and 470 MHz bands
  * are outside the range of the RF front end, the modes of the 896 MHz,
- * 901 MHz and 928 MHz bands are not implemented, and the 2450 MHz band is
- * not supported yet.
+ * 901 MHz and 928 MHz bands are not implemented, and in the 2450 MHz band
+ * the driver has the O-QPSK PHY instead, see the module
+ * `cc26x2_cc13x2_rf_24ghz`.
  *
  * Pick the band that is allowed where the device is used: the driver does not
  * check any regulation, neither the band nor duty cycle or channel limits.

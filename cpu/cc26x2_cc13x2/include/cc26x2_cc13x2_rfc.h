@@ -22,6 +22,7 @@
 #include <stdbool.h>
 
 #include "cc26xx_cc13xx_rfc_common_cmd.h"
+#include "cc26xx_cc13xx_rfc_ieee_mailbox.h"
 #include "cc26xx_cc13xx_rfc_mailbox.h"
 #include "cc26xx_cc13xx_rfc_queue.h"
 
@@ -109,8 +110,10 @@ int cc26x2_cc13x2_rfc_confirm_execute(void);
  * @brief   Has a radio operation command ended?
  *
  * A command that was accepted by the RF Core goes through @ref RFC_IDLE,
- * @ref RFC_PENDING and @ref RFC_ACTIVE. Every other status value is final:
- * the command ended, with or without error, or it was skipped.
+ * @ref RFC_PENDING and @ref RFC_ACTIVE, and the receiver of the IEEE 802.15.4
+ * mode is @ref RFC_IEEE_SUSPENDED during a transmission. Every other status
+ * value is final: the command ended, with or without error, or it was
+ * skipped.
  *
  * @param[in]   status  The `status` field of the command.
  *
@@ -119,7 +122,7 @@ int cc26x2_cc13x2_rfc_confirm_execute(void);
  */
 static inline bool cc26x2_cc13x2_rfc_cmd_has_ended(uint16_t status)
 {
-    return status > RFC_ACTIVE;
+    return (status > RFC_ACTIVE) && (status != RFC_IEEE_SUSPENDED);
 }
 
 /**

@@ -93,25 +93,6 @@
 #  endif
 #endif
 
-/**
- * @name    Range of the LQI
- *
- * The RF Core only reports the RSSI of a received frame in this mode, so the
- * LQI is taken from it, one of the methods of IEEE Std 802.15.4-2024, 11.2.7:
- * 0 and 255 stand for the weakest and the strongest signal, with the values
- * in between spread evenly, here 3.2 per dB.
- *
- * The limits are the ones TI's 15.4-Stack has for its own conversion
- * (`MAC_RADIO_RECEIVER_SENSITIVITY_DBM` and
- * `MAC_RADIO_RECEIVER_SATURATION_DBM` in `mac_radio_defs.h` of the SimpleLink
- * SDK). The upper one is also the maximum input level that the standard asks
- * of the SUN FSK PHY (20.6.12).
- * @{
- */
-#define LQI_RSSI_MIN_DBM    (-100)
-#define LQI_RSSI_MAX_DBM    (-20)
-/** @} */
-
 static const ieee802154_radio_ops_t cc26x2_cc13x2_rf_ops;
 static ieee802154_dev_t *cc26x2_cc13x2_rf_hal;
 
@@ -329,20 +310,6 @@ static void _handle_rx(ieee802154_dev_t *dev)
     while ((entry = cc26x2_cc13x2_rf_rx_next()) != NULL) {
         _rx_entry(dev, entry);
     }
-}
-
-static uint8_t _rssi_to_lqi(int8_t rssi)
-{
-    /* this also covers -128, "no RSSI is available" ([TRM] 25.3.3.2.3) */
-    if (rssi <= LQI_RSSI_MIN_DBM) {
-        return 0;
-    }
-    if (rssi >= LQI_RSSI_MAX_DBM) {
-        return UINT8_MAX;
-    }
-
-    return ((rssi - LQI_RSSI_MIN_DBM) * UINT8_MAX) /
-           (LQI_RSSI_MAX_DBM - LQI_RSSI_MIN_DBM);
 }
 
 static void _set_ifs_timer(void)
@@ -832,7 +799,7 @@ static int _read(ieee802154_dev_t *dev, void *buf, size_t max_size,
 
             DEBUG("RSSI: %i\n", (int)rssi);
             info->rssi = ieee802154_dbm_to_rssi(rssi);
-            info->lqi = _rssi_to_lqi(rssi);
+            info->lqi = cc26x2_cc13x2_rf_rssi_to_lqi(rssi);
             info->timestamp = 0;
         }
         cc26x2_cc13x2_rf_copy_psdu(buf, psdu, pktlen);

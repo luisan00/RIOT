@@ -47,7 +47,12 @@ operating modes are described in the documentation of the driver.
 
 The driver uses the sub-GHz path of the on-board RF switch with the standard
 PA, which gives up to 13 dBm, or 14 dBm in a build with
-`CONFIG_CC26XX_CC13XX_FORCE_VDDR_HH`. The 2.4 GHz band is not supported yet.
+`CONFIG_CC26XX_CC13XX_FORCE_VDDR_HH`.
+
+With `USEMODULE += cc26x2_cc13x2_rf_24ghz` the driver is built for the 2.4 GHz
+band instead, with the O-QPSK PHY of IEEE 802.15.4 on channels 11 to 26. It
+then uses the 2.4 GHz path of the RF switch with the standard PA (up to
+5 dBm). The radio works in one of the two bands, chosen at build time.
 
 The two variants of the board differ in their 20 dBm PA, so the build has to
 know which one it is for. `BOARD_VERSION` selects it, `cc1352p1` (the default)
