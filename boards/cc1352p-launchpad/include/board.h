@@ -86,6 +86,17 @@ void board_rf_switch_subghz(bool pa20);
  */
 #define CC26X2_CC13X2_RF_FRONTEND_SETUP(pa20) board_rf_switch_subghz(pa20)
 
+/**
+ * @brief   Set the on-board RF switch for the 2.4 GHz band
+ */
+void board_rf_switch_24ghz(void);
+
+/**
+ * @brief   Board hook of the 2.4 GHz radio driver, called when the radio is
+ *          set up
+ */
+#define CC26X2_CC13X2_RF_FRONTEND_SETUP_24GHZ() board_rf_switch_24ghz()
+
 #ifdef __cplusplus
 }
 #endif

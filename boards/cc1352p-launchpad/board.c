@@ -34,9 +34,10 @@
  *   0   |   1   |   0   | sub-GHz, 20 dBm PA, TX only
  *   1   |   0   |   0   | 2.4 GHz
  *
- * The radio driver uses the first one, in TX and RX. With the 20 dBm PA it
- * uses the second one in TX and the first one in RX; the RF Core then moves
- * the switch itself, see board_rf_switch_subghz().
+ * The sub-GHz radio driver uses the first one, in TX and RX. With the 20 dBm
+ * PA it uses the second one in TX and the first one in RX; the RF Core then
+ * moves the switch itself, see board_rf_switch_subghz(). The 2.4 GHz driver
+ * uses the third one, see board_rf_switch_24ghz().
  *
  * Checked against the SimpleLink CC13xx/CC26xx SDK 8.33.00.16:
  *
@@ -80,6 +81,15 @@ void board_rf_switch_subghz(bool pa20)
         gpio_clear(BOARD_RF_SWITCH_PA);
         gpio_set(BOARD_RF_SWITCH_SUBGHZ);
     }
+}
+
+void board_rf_switch_24ghz(void)
+{
+    gpio_init(BOARD_RF_SWITCH_PA, GPIO_OUT);
+    gpio_init(BOARD_RF_SWITCH_SUBGHZ, GPIO_OUT);
+    gpio_clear(BOARD_RF_SWITCH_PA);
+    gpio_clear(BOARD_RF_SWITCH_SUBGHZ);
+    gpio_set(BOARD_RF_SWITCH_24G);
 }
 
 void board_init(void)
