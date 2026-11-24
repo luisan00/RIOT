@@ -29,6 +29,17 @@ Cortex-M4F microcontroller alongside a dedicated Cortex-M0 to control radio.
 | Datasheet         | [Datasheet](http://www.ti.com/lit/ds/symlink/cc1312r.pdf) (pdf file) |
 | Reference Manual  | [Reference Manual](http://www.ti.com/lit/ug/swcu185d/swcu185d.pdf) |
 
+## Radio
+
+The sub-GHz radio is supported by the @ref cpu_cc26x2_cc13x2_rf driver, which
+implements the MR-FSK PHY of IEEE 802.15.4g. Applications that use
+`netdev_default` get a network interface for it.
+
+The default frequency band is 863 MHz (Europe), with the channel plan and the
+operating mode that RIOT's AT86RF215 driver uses, for compatibility with it.
+The plan of the standard, the other bands, the channel spacing and the
+operating modes are described in the documentation of the driver.
+
 ## Board pinout
 
 The [LAUNXHL-CC1312R Quick Start Guide](http://www.ti.com/lit/ml/swru535c/swru535c.pdf)

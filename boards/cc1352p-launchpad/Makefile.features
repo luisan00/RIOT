@@ -1,9 +1,21 @@
 CPU = cc26x2_cc13x2
 CPU_MODEL = cc1352p1
 
+# Variant of the LaunchPad. They differ in the band the output of the 20 dBm
+# PA is matched for:
+# - cc1352p1:  868/915 MHz (LAUNCHXL-CC1352P1)
+# - cc1352p-2: 2.4 GHz (LAUNCHXL-CC1352P-2)
+BOARD_VERSION ?= cc1352p1
+ifeq (,$(filter cc1352p1 cc1352p-2,$(BOARD_VERSION)))
+  $(error BOARD_VERSION must be cc1352p1 or cc1352p-2, not "$(BOARD_VERSION)")
+endif
+
 # Put defined MCU peripherals here (in alphabetical order)
 FEATURES_PROVIDED += periph_i2c
 FEATURES_PROVIDED += periph_gpio
 FEATURES_PROVIDED += periph_gpio_irq
 FEATURES_PROVIDED += periph_timer
 FEATURES_PROVIDED += periph_uart
+
+# Put other features for this board (in alphabetical order)
+FEATURES_PROVIDED += netif

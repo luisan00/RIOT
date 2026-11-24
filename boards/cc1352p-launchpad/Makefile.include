@@ -4,5 +4,17 @@ XDEBUGGER = XDS110
 # set UNIFLASH_POST_FLASH_CMD= to leave the boot to the debugger instead.
 UNIFLASH_POST_FLASH_CMD ?= PinReset
 
+# tell the code which variant of the LaunchPad this is, see Makefile.features
+ifeq (cc1352p1,$(BOARD_VERSION))
+  CFLAGS += -DBOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ=1
+else
+  CFLAGS += -DBOARD_CC1352P_LAUNCHPAD_PA20_SUBGHZ=0
+endif
+
+# TI's crystal trim for this LaunchPad (cap-array delta, lprf_ccfg_settings.js
+# in the SDK). Only written with CONFIG_CC26XX_CC13XX_UPDATE_CCFG.
+CFLAGS += -DSET_MODE_CONF_XOSC_CAP_MOD=0x0
+CFLAGS += -DSET_MODE_CONF_XOSC_CAPARRAY_DELTA=0xC1
+
 # configure the flash tool
 include $(RIOTBOARD)/common/cc26xx_cc13xx/Makefile.include
