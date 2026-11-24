@@ -102,8 +102,7 @@ extern "C" {
  * | 200 kHz         | 863.1 MHz, 0-34                   | 863.125 MHz, 0-33 |
  * | 400 kHz         | not available                     | 863.225 MHz, 0-16 |
  *
- * The channels of the two plans are 25 kHz apart, so a node with one and a
- * node with the other do not hear each other. The plan comes from
+ * The channels of the two plans are 25 kHz apart. The plan comes from
  * `ti154stack_rf_config_common.js` of the SimpleLink SDK and from
  * `drivers/at86rf215/at86rf215_fsk.c`.
  */

@@ -49,8 +49,7 @@ config CC26X2_CC13X2_RF_BAND_863_COMPAT
         for compatibility with those radios. It is not the plan of the
         standard: channel 0 is at 863.125 MHz with 200 kHz spacing and at
         863.225 MHz with 400 kHz spacing, where the standard has 863.1 MHz
-        with 100 kHz and 200 kHz spacing. A node with this plan and a node
-        with the one of the standard do not hear each other.
+        with 100 kHz and 200 kHz spacing.
 
 config CC26X2_CC13X2_RF_BAND_780
     bool "780 MHz: 779-787 MHz"
