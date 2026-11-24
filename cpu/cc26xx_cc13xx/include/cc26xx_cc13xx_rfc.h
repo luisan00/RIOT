@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2020 Locha Inc
+ * SPDX-FileCopyrightText: 2026 luisan00
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
@@ -13,6 +14,7 @@
  * @brief           CC26xx/CC13xx MCU I/O register definitions
  *
  * @author          Jean Pierre Dudey <jeandudey@hotmail.com>
+ * @author          Luis A. Ruiz <luisan00@hotmail.com>
  */
 
 #include "cc26xx_cc13xx.h"
@@ -69,49 +71,101 @@ typedef enum {
 } rf_hw_irq_t;
 
 /**
- * @brief   RFCPEIEN/RFCPEIFG/RFCPEISL interrupt flags
+ * @name    RFCPEIFG, RFCPEIEN and RFCPEISL interrupt flags
+ *
+ * Descriptions from SWCU185G, Table 25-207 "RFCPEIFG Register Field
+ * Descriptions".
+ * @{
  */
-typedef enum {
-    CPE_IRQ_COMMAND_DONE         = (1 << 0),
-    CPE_IRQ_LAST_COMMAND_DONE    = (1 << 1),
-    CPE_IRQ_FG_COMMAND_DONE      = (1 << 2),
-    CPE_IRQ_LAST_FG_COMMAND_DONE = (1 << 3),
-    CPE_IRQ_TX_DONE              = (1 << 4),
-    CPE_IRQ_TX_ACK               = (1 << 5),
-    CPE_IRQ_TX_CTRL              = (1 << 6),
-    CPE_IRQ_TX_CTRL_ACK          = (1 << 7),
-    CPE_IRQ_TX_CTRL_ACK_ACK      = (1 << 8),
-    CPE_IRQ_TX_RETRANS           = (1 << 9),
-    CPE_IRQ_TX_ENTRY_DONE        = (1 << 10),
-    CPE_IRQ_TX_BUFFER_CHANGED    = (1 << 11),
+/** @brief A radio operation command has finished */
+#define CPE_IRQ_COMMAND_DONE           (1UL << 0)
+/** @brief The last radio operation command in a chain of
+ *   commands has finished */
+#define CPE_IRQ_LAST_COMMAND_DONE      (1UL << 1)
+/** @brief IEEE 802.15.4 mode only: a foreground radio operation
+ *   command has finished */
+#define CPE_IRQ_FG_COMMAND_DONE        (1UL << 2)
+/** @brief IEEE 802.15.4 mode only: the last foreground radio
+ *   operation command in a chain of commands has finished */
+#define CPE_IRQ_LAST_FG_COMMAND_DONE   (1UL << 3)
+/** @brief Packet transmitted */
+#define CPE_IRQ_TX_DONE                (1UL << 4)
+/** @brief BLE mode: acknowledgement received on a transmitted packet.
+ *   IEEE 802.15.4 mode: transmitted automatic ACK frame */
+#define CPE_IRQ_TX_ACK                 (1UL << 5)
+/** @brief BLE mode: transmitted LL control packet */
+#define CPE_IRQ_TX_CTRL                (1UL << 6)
+/** @brief BLE mode: acknowledgement received on a transmitted LL
+ *   control packet */
+#define CPE_IRQ_TX_CTRL_ACK            (1UL << 7)
+/** @brief BLE mode only: acknowledgement received on a transmitted
+ *   LL control packet, and acknowledgement transmitted for that packet */
+#define CPE_IRQ_TX_CTRL_ACK_ACK        (1UL << 8)
+/** @brief BLE mode only: packet retransmitted */
+#define CPE_IRQ_TX_RETRANS             (1UL << 9)
+/** @brief TX queue data entry state changed to finished */
+#define CPE_IRQ_TX_ENTRY_DONE          (1UL << 10)
+/** @brief BLE mode only: a buffer change is complete after
+ *   CMD_BLE_ADV_PAYLOAD */
+#define CPE_IRQ_TX_BUFFER_CHANGED      (1UL << 11)
 #ifdef CPU_VARIANT_X2
-    CPE_IRQ_COMMAND_STARTED      = (1 << 12),
-    CPE_IRQ_FG_COMMAND_STARTED   = (1 << 13),
+/** @brief A radio operation command has gone into active state */
+#  define CPE_IRQ_COMMAND_STARTED        (1UL << 12)
+/** @brief IEEE 802.15.4 mode only: a foreground radio operation
+ *   command has gone into active state */
+#  define CPE_IRQ_FG_COMMAND_STARTED     (1UL << 13)
 #else
-    CPE_IRQ_IRQ12                = (1 << 12),
-    CPE_IRQ_IRQ13                = (1 << 13),
+/** @brief Interrupt flag 12 */
+#  define CPE_IRQ_IRQ12                  (1UL << 12)
+/** @brief Interrupt flag 13 */
+#  define CPE_IRQ_IRQ13                  (1UL << 13)
 #endif
-    CPE_IRQ_IRQ14                = (1 << 14),
-    CPE_IRQ_IRQ15                = (1 << 15),
-    CPE_IRQ_RX_OK                = (1 << 16),
-    CPE_IRQ_RX_NOK               = (1 << 17),
-    CPE_IRQ_RX_IGNORED           = (1 << 18),
-    CPE_IRQ_RX_EMPTY             = (1 << 19),
-    CPE_IRQ_RX_CTRL              = (1 << 20),
-    CPE_IRQ_RX_CTRL_ACK          = (1 << 21),
-    CPE_IRQ_RX_BUF_FULL          = (1 << 22),
-    CPE_IRQ_RX_ENTRY_DONE        = (1 << 23),
-    CPE_IRQ_RX_DATA_WRITTEN      = (1 << 24),
-    CPE_IRQ_RX_N_DATA_WRITTEN    = (1 << 25),
-    CPE_IRQ_RX_ABORTED           = (1 << 26),
-    CPE_IRQ_IRQ27                = (1 << 27),
-    CPE_IRQ_SYNTH_NO_LOCK        = (1 << 28),
-    CPE_IRQ_MODULES_UNLOCKED     = (1 << 29),
-    CPE_IRQ_BOOT_DONE            = (1 << 30),
-    CPE_IRQ_INTERNAL_ERROR       = (1 << 31),
-} rf_cpe_irq_t;
+/** @brief Interrupt flag 14 */
+#define CPE_IRQ_IRQ14                  (1UL << 14)
+/** @brief Interrupt flag 15 */
+#define CPE_IRQ_IRQ15                  (1UL << 15)
+/** @brief Packet received correctly */
+#define CPE_IRQ_RX_OK                  (1UL << 16)
+/** @brief Packet received with CRC error */
+#define CPE_IRQ_RX_NOK                 (1UL << 17)
+/** @brief Packet received, but can be ignored */
+#define CPE_IRQ_RX_IGNORED             (1UL << 18)
+/** @brief BLE mode only: packet received with CRC OK, not to be
+ *   ignored, no payload */
+#define CPE_IRQ_RX_EMPTY               (1UL << 19)
+/** @brief BLE mode only: LL control packet received with CRC OK, not
+ *   to be ignored */
+#define CPE_IRQ_RX_CTRL                (1UL << 20)
+/** @brief BLE mode only: LL control packet received with CRC OK,
+ *   not to be ignored, then acknowledgement sent */
+#define CPE_IRQ_RX_CTRL_ACK            (1UL << 21)
+/** @brief Packet received that did not fit in the RX queue */
+#define CPE_IRQ_RX_BUF_FULL            (1UL << 22)
+/** @brief RX queue data entry changing state to finished */
+#define CPE_IRQ_RX_ENTRY_DONE          (1UL << 23)
+/** @brief Data written to partial read RX buffer */
+#define CPE_IRQ_RX_DATA_WRITTEN        (1UL << 24)
+/** @brief Specified number of bytes written to partial read
+ *   RX buffer */
+#define CPE_IRQ_RX_N_DATA_WRITTEN      (1UL << 25)
+/** @brief Packet reception stopped before packet was done */
+#define CPE_IRQ_RX_ABORTED             (1UL << 26)
+/** @brief Interrupt flag 27 */
+#define CPE_IRQ_IRQ27                  (1UL << 27)
+/** @brief The phase-locked loop in the frequency synthesizer has
+ *   reported loss of lock */
+#define CPE_IRQ_SYNTH_NO_LOCK          (1UL << 28)
+/** @brief As part of the boot process, the CPE has opened access
+ *   to RF Core modules and memories */
+#define CPE_IRQ_MODULES_UNLOCKED       (1UL << 29)
+/** @brief The boot of the command and packet engine (CPE) is finished */
+#define CPE_IRQ_BOOT_DONE              (1UL << 30)
+/** @brief The CPE has observed an unexpected error. A reset of the
+ *   CPE is needed, by switching the RF Core power domain off and on */
+#define CPE_IRQ_INTERNAL_ERROR         (1UL << 31)
+/** @} */
 
-#define RFACKIFG_ACKFLAG 0x1
+#define RFACKIFG_ACKFLAG 0x1   /**< RFACKIFG: command acknowledgement flag */
 /** @} */
 
 /**
@@ -123,7 +177,8 @@ typedef enum {
 /** @} */
 
 #define RFC_DBELL ((rfc_dbell_regs_t *) (RFC_DBELL_BASE)) /**< RFC_DBELL register bank */
-#define RFC_DBELL_NONBUF ((rfc_dbell_regs_t *) (RFC_DBELL_BASE_NONBUF)) /**< RFC_DBELL register bank */
+/** RFC_DBELL register bank, non-buffered access */
+#define RFC_DBELL_NONBUF ((rfc_dbell_regs_t *) (RFC_DBELL_BASE_NONBUF))
 
 /**
  * @brief   RFC_PWR registers
@@ -158,6 +213,23 @@ typedef struct {
 
 #define RFC_PWR ((rfc_pwr_regs_t *) (RFC_PWR_BASE)) /**< RFC_PWR register bank */
 #define RFC_PWR_NONBUF ((rfc_pwr_regs_t *) (RFC_PWR_BASE_NONBUF)) /**< RFC_PWR register bank */
+
+/**
+ * @brief   RFC_RAT registers
+ */
+typedef struct {
+    reg32_t __reserved; /**< Reserved */
+    reg32_t RATCNT; /**< Radio Timer Counter Value */
+} rfc_rat_regs_t;
+
+/**
+ * @ingroup cpu_specific_peripheral_memory_map
+ * @{
+ */
+#define RFC_RAT_BASE (PERIPH_BASE + 0x43000) /**< RFC_RAT base address */
+/** @} */
+
+#define RFC_RAT ((rfc_rat_regs_t *) (RFC_RAT_BASE)) /**< RFC_RAT register bank */
 
 #ifdef __cplusplus
 }
