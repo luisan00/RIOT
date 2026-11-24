@@ -4,7 +4,8 @@ MODULE = cc26x2_cc13x2_rf
 ifneq (,$(filter cc26x2_cc13x2_rf_24ghz,$(USEMODULE)))
   SRC := cc26x2_cc13x2_rf_ieee.c
 else
-  SRC := cc26x2_cc13x2_rf_internal.c cc26x2_cc13x2_rf_radio_ops.c
+  SRC := cc26x2_cc13x2_rf_internal.c cc26x2_cc13x2_rf_radio_ops.c \
+         cc26x2_cc13x2_rf_settings.c
 endif
 SRC += cc26x2_cc13x2_rf_eui64.c
 

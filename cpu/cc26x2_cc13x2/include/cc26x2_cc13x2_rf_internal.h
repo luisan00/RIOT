@@ -455,6 +455,16 @@ extern "C" {
 #define CC26X2_CC13X2_RF_RX_STATUS_LEN 1
 
 /**
+ * @brief   Duration of a CCA in microseconds
+ *
+ * IEEE Std 802.15.4-2024, 11.2.8: the CCA detection time is phyCcaDuration,
+ * which is 8 symbol periods when the PHY does not recommend another value
+ * (Table 12-2). The symbol period of the SUN FSK PHY for MAC and PHY timing
+ * is 20 us in the bands of this driver (Table 20-1).
+ */
+#define CC26X2_CC13X2_RF_CCA_DURATION_US    (160U)
+
+/**
  * @brief   Align the size of a buffer to a 4-byte boundary.
  *
  * For example:
@@ -585,9 +595,44 @@ extern rfc_cmd_prop_cs_t rf_cmd_prop_cs;
 extern rfc_cmd_set_tx_power_t rf_cmd_set_tx_power;
 
 /**
+ * @brief   CMD_FS_POWERDOWN, chained with @ref rf_cmd_sync_stop_rat
+ *
+ * Power down the frequency synthesizer
+ */
+extern rfc_cmd_fs_powerdown_t rf_cmd_fs_powerdown;
+
+/**
+ * @brief   CMD_SYNC_STOP_RAT
+ *
+ * Synchronously stop the RAT
+ */
+extern rfc_cmd_sync_stop_rat_t rf_cmd_sync_stop_rat;
+
+/**
  * @brief   Initialize internal variables
  */
 void cc26x2_cc13x2_rf_internal_init(void);
+
+/**
+ * @brief   Load the settings the radio starts with into the command
+ *          structures: the default MR-FSK mode and the first entry of the
+ *          PA table of the board, with the standard PA
+ *
+ * Nothing is sent to the RF Core.
+ */
+void cc26x2_cc13x2_rf_settings_init(void);
+
+/**
+ * @brief   Run the setup command again, with the mode and the TX power
+ *          that are in the command structures, and tune to the current
+ *          channel
+ *
+ * @pre     The radio is on and idle.
+ *
+ * @return 0 on success.
+ * @return -EIO if the RF Core rejected the setup or it failed.
+ */
+int cc26x2_cc13x2_rf_run_setup(void);
 
 /**
  * @brief   Request to turn on the radio
