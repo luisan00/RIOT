@@ -1,3 +1,27 @@
 USEMODULE += cc26xx_cc13xx
 
 include ${RIOTCPU}/cc26xx_cc13xx/Makefile.dep
+
+ifneq (,$(filter cc26x2_cc13x2_rf,$(USEMODULE)))
+  USEMODULE += cc26x2_cc13x2_rfc
+  USEMODULE += cc26x2_cc13x2_rf_patches
+  # frame header parsing for the address filter
+  USEMODULE += ieee802154
+  ifneq (,$(filter netdev,$(USEMODULE)))
+    USEMODULE += netdev_ieee802154_submac
+    # The only PHY of the radio is MR-FSK. Without this module the SubMAC
+    # rejects the PHY configuration at start-up and never passes it to the
+    # radio. It cannot be selected without netdev: every netdev_% module
+    # pulls netdev in.
+    USEMODULE += netdev_ieee802154_mr_fsk
+  endif
+  # the backoffs of CSMA-CA: their random length and their timer
+  USEMODULE += random
+  USEMODULE += ztimer_usec
+  ifneq (,$(filter ieee802154_submac,$(USEMODULE)))
+    # The radio sends ACKs itself, waits for the ACK of a frame it sent and
+    # does CSMA-CA, but it does not retransmit: the SubMAC has to. Without
+    # this module it assumes the radio does.
+    USEMODULE += ieee802154_submac_soft_frame_retrans
+  endif
+endif
