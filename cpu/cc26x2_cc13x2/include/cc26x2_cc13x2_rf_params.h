@@ -38,6 +38,16 @@ extern "C" {
  * the battery and temperature monitor of the MCU, which is on from boot and
  * must be left on (SWCU185G, 20.1). The values of a PA table come with the
  * coefficient TI gives for each power.
+ *
+ * The RF Core was seen to round the result down, which TI's documents do
+ * not mention: with the chip below 25 degrees Celsius an entry that has a
+ * coefficient is sent with a bias at least one step lower. That is a
+ * fraction of a dB at the top of a PA table and several dB at its bottom,
+ * where the bias is small. With the sub-GHz table of the LaunchPads, on a
+ * CC1312R and a CC1352P1 at 19 to 20 degrees Celsius, the power was 1.5 dB
+ * lower at 0 dBm, 2.5 dB at -5 dBm and 4.5 dB at -10 dBm, and the entry of
+ * -15 dBm, with a bias of 1, gave the same power as the one of -20 dBm,
+ * with a bias of 0.
  */
 #define CC26X2_CC13X2_RF_PA_ENTRY(bias, gain, boost, coefficient) \
     (((bias) << 0) | ((gain) << 6) | ((boost) << 8) | ((coefficient) << 9))
