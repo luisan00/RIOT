@@ -69,11 +69,13 @@ by default, as only some channels of some bands allow such powers.
 The radio has been tested on the LAUNCHXL-CC1352P1. Nobody has tried it on
 the LAUNCHXL-CC1352P-2 yet.
 
-The 48 MHz crystal of this LaunchPad needs a cap-array trim that is stored in
-the CCFG. RIOT only writes the CCFG when it is built with
+The 48 MHz crystal of this LaunchPad needs less load than the factory trim of
+the MCU gives. TI's board support sets a cap-array delta in the CCFG for it,
+and RIOT uses the same one. RIOT only writes the CCFG when it is built with
 `CFLAGS=-DCONFIG_CC26XX_CC13XX_UPDATE_CCFG=1`, so flash such a build once.
-Without the trim the carrier frequency is off, and the board may not be heard
-by radios that are on frequency.
+Without the delta the carrier of a LAUNCHXL-CC1352P1 is about 55 ppm low,
+outside the tolerance of IEEE Std 802.15.4-2024 (20.6.3), and at 50 ksym/s it
+can neither hear nor be heard by radios that are on frequency.
 
 ## Board pinout
 
