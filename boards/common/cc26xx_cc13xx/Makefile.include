@@ -15,6 +15,16 @@ TTY_BOARD_FILTER := --model XDS110 --iface-num 0
 
 UNIFLASH_CONFIG ?= $(RIOTBOARD)/common/cc26xx_cc13xx/dist
 
+# Once a debugger has been connected, these MCUs stop in their boot code at the
+# next reset that is not a pin reset or a power-on reset ("Halt In Boot",
+# SWCU185G, 6.6): a software reset after flashing, the `reboot` shell command
+# for instance, would leave the board silent until its reset button is pressed.
+# A pin reset as the last step of the flash clears that. Checked on the CC1312R
+# and the CC1352P.
+ifneq (,$(filter cc13x2% cc1312% cc1352% cc26x2%,$(CPU_MODEL)))
+  UNIFLASH_POST_FLASH_CMD ?= PinReset
+endif
+
 OPENOCD_DEBUG_ADAPTER ?= xds110
 # Work around a bug in the CC26xx / CC13xx that is triggered by 'reset halt'.
 # This results in the CC26xx / CC13xx being flash-able again, but it may race
