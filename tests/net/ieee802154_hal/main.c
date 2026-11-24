@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: 2020 HAW Hamburg
+ * SPDX-FileCopyrightText: 2026 luisan00
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
@@ -12,6 +13,7 @@
  *
  * @author      José I. Alamos <jose.alamos@haw-hamburg.de>
  * @author      Michel Rottleuthner <michel.rottleuthner@haw-hamburg.de>
+ * @author      Luis A. Ruiz <luisan00@hotmail.com>
  *
  * @}
  */
@@ -275,6 +277,9 @@ static ieee802154_dev_t *_reg_callback(ieee802154_dev_type_t type, void *opaque)
         case IEEE802154_DEV_TYPE_ESP_IEEE802154:
             printf("esp_ieee802154");
             break;
+        case IEEE802154_DEV_TYPE_CC26X2_CC13X2_RF:
+            printf("cc26x2_cc13x2_rf");
+            break;
     }
 
     puts(".");
@@ -326,14 +331,30 @@ static int _init(void)
     expect(res >= 0);
 
     /* Set PHY configuration */
-    ieee802154_phy_conf_t conf = { .phy_mode=CONFIG_IEEE802154_DEFAULT_PHY_MODE,
-                                   .channel=CONFIG_IEEE802154_DEFAULT_CHANNEL,
-                                   .pow=CONFIG_IEEE802154_DEFAULT_TXPOWER};
+    union {
+        ieee802154_phy_conf_t super;
+        ieee802154_mr_fsk_conf_t mr_fsk;
+    } conf = {
+        .super = { .phy_mode=CONFIG_IEEE802154_DEFAULT_PHY_MODE,
+                   .channel=CONFIG_IEEE802154_DEFAULT_CHANNEL,
+                   .pow=CONFIG_IEEE802154_DEFAULT_TXPOWER },
+    };
 
-    res = ieee802154_radio_config_phy(&_radio, &conf);
+    /* A radio that only has the MR-FSK PHY, like the cc26x2_cc13x2 sub-GHz
+     * radio, needs the MR-FSK extension and a sub-GHz channel. */
+    if (!ieee802154_radio_has_phy_oqpsk(&_radio) &&
+        ieee802154_radio_has_phy_mr_fsk(&_radio)) {
+        conf.mr_fsk.super.phy_mode = IEEE802154_PHY_MR_FSK;
+        conf.mr_fsk.super.channel = CONFIG_IEEE802154_DEFAULT_SUBGHZ_CHANNEL;
+        conf.mr_fsk.srate = CONFIG_IEEE802154_MR_FSK_DEFAULT_SRATE;
+        conf.mr_fsk.mod_ord = CONFIG_IEEE802154_MR_FSK_DEFAULT_MOD_ORD;
+        conf.mr_fsk.mod_idx = CONFIG_IEEE802154_MR_FSK_DEFAULT_MOD_IDX;
+        conf.mr_fsk.fec = CONFIG_IEEE802154_MR_FSK_DEFAULT_FEC;
+    }
+
+    res = ieee802154_radio_config_phy(&_radio, &conf.super);
     expect(res >= 0);
 
-    /* ieee802154_radio_set_cca_mode*/
     res = ieee802154_radio_set_cca_mode(&_radio, IEEE802154_CCA_MODE_ED_THRESHOLD);
     expect(res >= 0);
     res = ieee802154_radio_set_cca_threshold(&_radio, CONFIG_IEEE802154_CCA_THRESH_DEFAULT);
@@ -500,7 +521,8 @@ int config_phy(int argc, char **argv)
 {
     int res = -EINVAL;
     if (argc < 4) {
-        puts("Usage: config_phy <phy_mode> <channel> <tx_pow>");
+        puts("Usage: config_phy <phy_mode> <channel> <tx_pow> "
+             "[<MR-FSK symbol rate in ksym/s> <MR-FSK modulation index in 1/64>]");
         return 1;
     }
 
@@ -537,15 +559,62 @@ int config_phy(int argc, char **argv)
     uint8_t channel = atoi(argv[2]);
     int8_t tx_pow = atoi(argv[3]);
 
-    if (channel < 11 || channel > 26) {
+    ieee802154_dev_t *dev = &_radio;
+
+    /* The channels 11 to 26 are the ones of the 2.4 GHz band. A sub-GHz radio
+     * has its own channel numbers and checks them itself in config_phy. */
+    if (!ieee802154_radio_has_sub_ghz(dev) && (channel < 11 || channel > 26)) {
         puts("Wrong channel configuration (11 <= channel <= 26).");
         return 1;
     }
 
-    ieee802154_dev_t *dev = &_radio;
+    union {
+        ieee802154_phy_conf_t super;
+        ieee802154_mr_fsk_conf_t mr_fsk;
+    } conf = {
+        .super = { .phy_mode=phy_mode, .channel=channel, .pow=tx_pow },
+    };
+
+    /* The MR-FSK PHY takes the MR-FSK extension: symbol rate and modulation
+     * index from the command line, 2-FSK without FEC */
+    if (phy_mode == IEEE802154_PHY_MR_FSK) {
+        unsigned srate_ksym = (argc > 4) ? (unsigned)atoi(argv[4]) : 0;
+        unsigned mod_idx = (argc > 5) ? (unsigned)atoi(argv[5])
+                                      : CONFIG_IEEE802154_MR_FSK_DEFAULT_MOD_IDX;
+
+        switch (srate_ksym) {
+        case 0:
+            conf.mr_fsk.srate = CONFIG_IEEE802154_MR_FSK_DEFAULT_SRATE;
+            break;
+        case 50:
+            conf.mr_fsk.srate = IEEE802154_MR_FSK_SRATE_50K;
+            break;
+        case 100:
+            conf.mr_fsk.srate = IEEE802154_MR_FSK_SRATE_100K;
+            break;
+        case 150:
+            conf.mr_fsk.srate = IEEE802154_MR_FSK_SRATE_150K;
+            break;
+        case 200:
+            conf.mr_fsk.srate = IEEE802154_MR_FSK_SRATE_200K;
+            break;
+        case 300:
+            conf.mr_fsk.srate = IEEE802154_MR_FSK_SRATE_300K;
+            break;
+        case 400:
+            conf.mr_fsk.srate = IEEE802154_MR_FSK_SRATE_400K;
+            break;
+        default:
+            puts("Wrong MR-FSK symbol rate (50, 100, 150, 200, 300 or 400).");
+            return 1;
+        }
+        conf.mr_fsk.mod_ord = 2;
+        conf.mr_fsk.mod_idx = mod_idx;
+        conf.mr_fsk.fec = IEEE802154_FEC_NONE;
+    }
+
     ieee802154_radio_set_idle(dev, true);
-    ieee802154_phy_conf_t conf = {.phy_mode=phy_mode, .channel=channel, .pow=tx_pow};
-    if (ieee802154_radio_config_phy(dev, &conf) < 0) {
+    if (ieee802154_radio_config_phy(dev, &conf.super) < 0) {
         puts("Channel or TX power settings not supported");
     }
     else {
